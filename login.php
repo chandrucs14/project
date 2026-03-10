@@ -851,13 +851,7 @@ if (!isset($_SESSION['user_id']) && isset($_COOKIE['remember'])) {
                         <span><i class="fas fa-clock"></i> 24/7 Support</span>
                     </div>
                     
-                    <!-- Demo Credentials (Remove in production) -->
-                    <div class="demo-credentials">
-                        <p class="mb-2"><i class="fas fa-info-circle"></i> Demo Credentials:</p>
-                        <p><strong>Admin:</strong> admin@ecommer.in / Admin@123 <span class="badge">Admin</span></p>
-                        <p><strong>Sales:</strong> sales@ecommer.in / Sales@123 <span class="badge">Sales</span></p>
-                        <p class="mb-0 text-muted"><small>*For testing purposes only</small></p>
-                    </div>
+                    
                 </form>
             </div>
         </div>
