@@ -366,7 +366,7 @@ if (!isset($_SESSION['user_id']) && isset($_COOKIE['remember'])) {
         }
         
         .login-header .logo-big img {
-            width: 120px;
+            width: 200px;
             height: auto;
             margin-bottom: 20px;
             filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
