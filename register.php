@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
-    $role = 'sales'; // Default role for new registrations
+    $role = $_POST['role'] ?? 'sales'; // Get selected role, default to sales
     
     // Validation
     if ($username === '' || $email === '' || $full_name === '' || $password === '' || $confirm_password === '') {
@@ -39,6 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Passwords do not match.";
     } elseif ($phone !== '' && !preg_match('/^[0-9]{10}$/', $phone)) {
         $error = "Please enter a valid 10-digit phone number.";
+    } elseif (!in_array($role, ['admin', 'sales'])) {
+        $error = "Invalid role selected.";
     } else {
         try {
             // Check if username already exists
@@ -146,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .register-container {
             width: 100%;
-            max-width: 550px;
+            max-width: 600px;
             margin: 0 auto;
             animation: fadeIn 0.8s ease-out;
         }
@@ -218,7 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 14px;
         }
         
-        .input-group {
+        .input-group, .role-select-group {
             position: relative;
             border-radius: 10px;
             overflow: hidden;
@@ -226,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transition: all 0.3s;
         }
         
-        .input-group:focus-within {
+        .input-group:focus-within, .role-select-group:focus-within {
             border-color: var(--primary-color);
             box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
         }
@@ -238,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding: 0 15px;
         }
         
-        .form-control {
+        .form-control, .form-select {
             border: none;
             padding: 12px 15px;
             font-size: 15px;
@@ -246,8 +248,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: none;
         }
         
-        .form-control:focus {
+        .form-control:focus, .form-select:focus {
             box-shadow: none;
+        }
+        
+        .form-select {
+            background-color: white;
+            cursor: pointer;
+        }
+        
+        .role-option {
+            display: flex;
+            align-items: center;
+            padding: 5px 0;
+        }
+        
+        .role-option i {
+            width: 24px;
+            color: var(--primary-color);
+        }
+        
+        .role-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .role-badge.admin {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .role-badge.sales {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .role-description {
+            font-size: 12px;
+            color: var(--gray-text);
+            margin-top: 5px;
+            margin-left: 45px;
         }
         
         .password-requirements {
@@ -420,6 +464,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-top: 5px;
             text-align: right;
         }
+        
+        /* Role info cards */
+        .role-info {
+            background: var(--light-bg);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+            font-size: 13px;
+            border-left: 3px solid var(--primary-color);
+            display: none;
+        }
+        
+        .role-info.active {
+            display: block;
+        }
+        
+        .role-info i {
+            color: var(--primary-color);
+            margin-right: 8px;
+        }
     </style>
 </head>
 <body>
@@ -524,6 +588,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                    value="<?= htmlspecialchars($_POST['phone'] ?? '') ?>">
                         </div>
                         <small class="text-muted">Optional: For account recovery and notifications</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <i class="fas fa-user-tag"></i> Select Role <span class="text-danger">*</span>
+                        </label>
+                        <div class="role-select-group">
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="fas fa-shield-alt"></i>
+                                </span>
+                                <select name="role" id="roleSelect" class="form-select" required>
+                                    <option value="" disabled <?= !isset($_POST['role']) ? 'selected' : '' ?>>Choose your role</option>
+                                    <option value="admin" <?= (isset($_POST['role']) && $_POST['role'] === 'admin') ? 'selected' : '' ?>>Administrator</option>
+                                    <option value="sales" <?= (isset($_POST['role']) && $_POST['role'] === 'sales') ? 'selected' : '' ?>>Sales Staff</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Role Information -->
+                        <div id="adminInfo" class="role-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Administrator Access:</strong> Full system access including user management, settings, and all business operations.
+                            <div style="margin-top: 8px;">
+                                <span class="role-badge admin">Admin</span>
+                                <span class="role-badge sales">Sales</span>
+                            </div>
+                        </div>
+                        
+                        <div id="salesInfo" class="role-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Sales Staff Access:</strong> Can manage sales, create invoices, track customers, and view reports but cannot modify system settings.
+                            <div style="margin-top: 8px;">
+                                <span class="role-badge sales">Sales Staff</span>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="form-group">
@@ -647,6 +747,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 icon.classList.add('fa-eye');
             }
         });
+        
+        // Role selection info display
+        const roleSelect = document.getElementById('roleSelect');
+        const adminInfo = document.getElementById('adminInfo');
+        const salesInfo = document.getElementById('salesInfo');
+        
+        function updateRoleInfo() {
+            const selectedRole = roleSelect.value;
+            
+            // Hide both info panels
+            adminInfo.classList.remove('active');
+            salesInfo.classList.remove('active');
+            
+            // Show selected role info
+            if (selectedRole === 'admin') {
+                adminInfo.classList.add('active');
+            } else if (selectedRole === 'sales') {
+                salesInfo.classList.add('active');
+            }
+        }
+        
+        roleSelect.addEventListener('change', updateRoleInfo);
+        
+        // Trigger on page load if role is pre-selected
+        if (roleSelect.value) {
+            updateRoleInfo();
+        }
         
         // Password strength checker and requirements
         const password = document.getElementById('password');
