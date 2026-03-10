@@ -511,7 +511,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?= htmlspecialchars($success) ?>
                     </div>
                     <div class="text-center">
-                        <a href="index.php" class="btn btn-primary">
+                        <a href="login.php" class="btn btn-primary">
                             <i class="fas fa-sign-in-alt me-2"></i>Go to Login
                         </a>
                     </div>
