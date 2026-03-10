@@ -3,12 +3,9 @@ date_default_timezone_set('Asia/Kolkata');
 session_start();
 require_once 'config/database.php';
 
-// Enable error reporting for debugging (remove in production)
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 // Check if user is already logged in
 if (isset($_SESSION['user_id'])) {
+    // Check if user needs to select shop (admin with multiple shops)
     if (isset($_SESSION['needs_shop_selection']) && $_SESSION['needs_shop_selection'] === true) {
         header("Location: select_shop.php");
     } else {
@@ -20,14 +17,20 @@ if (isset($_SESSION['user_id'])) {
 $error = '';
 $success = '';
 
-// Test database connection
-try {
-    $pdo->query("SELECT 1");
-} catch (Exception $e) {
-    $error = "Database connection failed: " . $e->getMessage();
+// Check for session timeout message
+if (isset($_SESSION['timeout_message'])) {
+    $error = $_SESSION['timeout_message'];
+    unset($_SESSION['timeout_message']);
+}
+
+// Check for registration success message
+if (isset($_SESSION['registration_success'])) {
+    $success = $_SESSION['registration_success'];
+    unset($_SESSION['registration_success']);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Check if it's a login request or password reset request
     if (isset($_POST['reset_email'])) {
         // Handle password reset request
         $email = trim($_POST['reset_email'] ?? '');
@@ -36,11 +39,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Please enter your email address.";
         } else {
             try {
+                // Check if email exists in database
                 $stmt = $pdo->prepare("SELECT id, full_name, email FROM users WHERE email = ? AND is_active = 1 LIMIT 1");
                 $stmt->execute([$email]);
                 $user = $stmt->fetch();
                 
                 if ($user) {
+                    // Generate reset token
+                    $reset_token = bin2hex(random_bytes(32));
+                    $expires_at = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                    
+                    // Store token in database (you'll need to add these columns to users table)
+                    // For now, we'll simulate this. You may need to add reset_token and reset_token_expires columns
+                    /*
+                    $stmt = $pdo->prepare("UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?");
+                    $stmt->execute([$reset_token, $expires_at, $user['id']]);
+                    
+                    // Create reset link
+                    $reset_link = "https://ecommer.in/billing/trading/reset_password.php?token=" . $reset_token;
+                    
+                    // Send email logic here
+                    */
+                    
                     $success = "Password reset instructions have been sent to your email.";
                 } else {
                     $error = "No account found with this email address.";
@@ -60,220 +80,196 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Please enter both username and password.";
         } else {
             try {
-                // Log the login attempt
-                error_log("Login attempt for username/email: " . $username);
+                // Get user by username or email
+                $stmt = $pdo->prepare("
+                    SELECT id, username, email, password_hash, full_name, phone, role, is_active, 
+                           last_login, created_at, shop_id, business_id
+                    FROM users 
+                    WHERE (username = ? OR email = ?) AND is_active = 1
+                    LIMIT 1
+                ");
+                $stmt->execute([$username, $username]);
+                $user = $stmt->fetch();
                 
-                // First, check if the users table exists and has records
-                $checkTable = $pdo->query("SHOW TABLES LIKE 'users'");
-                if ($checkTable->rowCount() == 0) {
-                    error_log("Users table does not exist!");
-                    $error = "System configuration error. Please contact administrator.";
-                } else {
-                    // Check if there are any users in the table
-                    $userCount = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-                    error_log("Total users in database: " . $userCount);
+                if ($user && password_verify($password, $user['password_hash'])) {
+                    // Password is correct
                     
-                    if ($userCount == 0) {
-                        $error = "No users found in the system. Please register first.";
-                    } else {
-                        // Get user by username or email
-                        $stmt = $pdo->prepare("
-                            SELECT id, username, email, password_hash, full_name, phone, role, is_active, 
-                                   last_login, created_at, shop_id, business_id
-                            FROM users 
-                            WHERE (username = ? OR email = ?)
-                            LIMIT 1
-                        ");
-                        $stmt->execute([$username, $username]);
-                        $user = $stmt->fetch();
+                    // Set session variables
+                    $_SESSION['user_id'] = (int)$user['id'];
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['full_name'] = $user['full_name'];
+                    $_SESSION['email'] = $user['email'];
+                    $_SESSION['role'] = $user['role'];
+                    $_SESSION['login_time'] = time();
+                    
+                    // Set business and shop if available
+                    if (isset($user['business_id']) && $user['business_id']) {
+                        $_SESSION['business_id'] = (int)$user['business_id'];
+                    }
+                    
+                    if (isset($user['shop_id']) && $user['shop_id']) {
+                        $_SESSION['shop_id'] = (int)$user['shop_id'];
+                    }
+                    
+                    // Handle "Remember Me" functionality
+                    if ($remember) {
+                        $selector = bin2hex(random_bytes(12));
+                        $token = random_bytes(32);
+                        $hashed_token = hash('sha256', $token);
                         
-                        if ($user) {
-                            error_log("User found: " . $user['username'] . ", Active: " . $user['is_active']);
+                        // Set expiry date (30 days from now)
+                        $expiry = date('Y-m-d H:i:s', strtotime('+30 days'));
+                        
+                        // Delete any existing tokens for this user
+                        $stmt = $pdo->prepare("DELETE FROM auth_tokens WHERE user_id = ?");
+                        $stmt->execute([$user['id']]);
+                        
+                        // Store new token (you'll need to create auth_tokens table)
+                        /*
+                        $stmt = $pdo->prepare("
+                            INSERT INTO auth_tokens (user_id, selector, hashed_token, expires_at) 
+                            VALUES (?, ?, ?, ?)
+                        ");
+                        $stmt->execute([$user['id'], $selector, $hashed_token, $expiry]);
+                        
+                        // Set cookies
+                        setcookie('remember', $selector . ':' . bin2hex($token), time() + (86400 * 30), '/', '', true, true);
+                        */
+                    }
+                    
+                    // Update last login
+                    $updateStmt = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
+                    $updateStmt->execute([$user['id']]);
+                    
+                    // Log the login activity
+                    $activity_stmt = $pdo->prepare("
+                        INSERT INTO activity_logs (
+                            user_id, activity_type_id, description, activity_data, created_at
+                        ) VALUES (?, 1, ?, ?, NOW())
+                    ");
+                    
+                    $activity_data = json_encode([
+                        'username' => $user['username'],
+                        'login_method' => isset($_POST['username']) ? 'username' : 'email',
+                        'ip_address' => $_SERVER['REMOTE_ADDR'],
+                        'user_agent' => $_SERVER['HTTP_USER_AGENT']
+                    ]);
+                    
+                    $activity_stmt->execute([
+                        $user['id'],
+                        'User logged in successfully',
+                        $activity_data
+                    ]);
+                    
+                    // Check user role and redirect accordingly
+                    if ($user['role'] === 'admin') {
+                        // Admin might have multiple shops to select from
+                        // Check if admin has multiple shops assigned
+                        $shopStmt = $pdo->prepare("SELECT COUNT(*) FROM shops WHERE is_active = 1");
+                        $shopStmt->execute();
+                        $shopCount = $shopStmt->fetchColumn();
+                        
+                        if ($shopCount > 1) {
+                            $_SESSION['needs_shop_selection'] = true;
+                            header("Location: select_shop.php");
+                            exit();
+                        } else {
+                            // Get the single shop
+                            $shopStmt = $pdo->prepare("SELECT id, shop_name FROM shops WHERE is_active = 1 LIMIT 1");
+                            $shopStmt->execute();
+                            $shop = $shopStmt->fetch();
                             
-                            // Check if user is active
-                            if ($user['is_active'] != 1) {
-                                error_log("User account is inactive: " . $user['username']);
-                                $error = "Your account has been deactivated. Please contact administrator.";
+                            if ($shop) {
+                                $_SESSION['shop_id'] = $shop['id'];
+                                $_SESSION['shop_name'] = $shop['shop_name'];
+                                header("Location: dashboard.php");
+                                exit();
                             } else {
-                                // Verify password
-                                if (password_verify($password, $user['password_hash'])) {
-                                    error_log("Password verification successful for user: " . $user['username']);
-                                    
-                                    // Set session variables
-                                    $_SESSION['user_id'] = (int)$user['id'];
-                                    $_SESSION['username'] = $user['username'];
-                                    $_SESSION['full_name'] = $user['full_name'];
-                                    $_SESSION['email'] = $user['email'];
-                                    $_SESSION['role'] = $user['role'];
-                                    $_SESSION['login_time'] = time();
-                                    
-                                    if (isset($user['business_id']) && $user['business_id']) {
-                                        $_SESSION['business_id'] = (int)$user['business_id'];
-                                    }
-                                    
-                                    if (isset($user['shop_id']) && $user['shop_id']) {
-                                        $_SESSION['shop_id'] = (int)$user['shop_id'];
-                                    }
-                                    
-                                    // Update last login
-                                    $updateStmt = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
-                                    $updateStmt->execute([$user['id']]);
-                                    
-                                    // Log the login activity
-                                    try {
-                                        $activity_stmt = $pdo->prepare("
-                                            INSERT INTO activity_logs (
-                                                user_id, activity_type_id, description, activity_data, created_at
-                                            ) VALUES (?, 1, ?, ?, NOW())
-                                        ");
-                                        
-                                        $activity_data = json_encode([
-                                            'username' => $user['username'],
-                                            'login_method' => 'username/email',
-                                            'ip_address' => $_SERVER['REMOTE_ADDR'],
-                                            'user_agent' => $_SERVER['HTTP_USER_AGENT']
-                                        ]);
-                                        
-                                        $activity_stmt->execute([
-                                            $user['id'],
-                                            'User logged in successfully',
-                                            $activity_data
-                                        ]);
-                                    } catch (Exception $e) {
-                                        error_log("Failed to log activity: " . $e->getMessage());
-                                        // Continue even if activity logging fails
-                                    }
-                                    
-                                    // Check user role and redirect
-                                    if ($user['role'] === 'admin') {
-                                        // Check if there are multiple shops
-                                        try {
-                                            $shopStmt = $pdo->query("SELECT COUNT(*) FROM shops WHERE is_active = 1");
-                                            $shopCount = $shopStmt->fetchColumn();
-                                            
-                                            if ($shopCount > 1) {
-                                                $_SESSION['needs_shop_selection'] = true;
-                                                header("Location: select_shop.php");
-                                                exit();
-                                            } else {
-                                                $shopStmt = $pdo->query("SELECT id, shop_name FROM shops WHERE is_active = 1 LIMIT 1");
-                                                $shop = $shopStmt->fetch();
-                                                
-                                                if ($shop) {
-                                                    $_SESSION['shop_id'] = $shop['id'];
-                                                    $_SESSION['shop_name'] = $shop['shop_name'];
-                                                    header("Location: dashboard.php");
-                                                    exit();
-                                                } else {
-                                                    $error = "No active shops found in the system.";
-                                                }
-                                            }
-                                        } catch (Exception $e) {
-                                            error_log("Shop check error: " . $e->getMessage());
-                                            header("Location: dashboard.php");
-                                            exit();
-                                        }
-                                    } elseif ($user['role'] === 'sales') {
-                                        if ($user['shop_id']) {
-                                            try {
-                                                $shopStmt = $pdo->prepare("SELECT shop_name FROM shops WHERE id = ? AND is_active = 1");
-                                                $shopStmt->execute([$user['shop_id']]);
-                                                $shop = $shopStmt->fetch();
-                                                
-                                                if ($shop) {
-                                                    $_SESSION['shop_id'] = $user['shop_id'];
-                                                    $_SESSION['shop_name'] = $shop['shop_name'];
-                                                    header("Location: dashboard.php");
-                                                    exit();
-                                                } else {
-                                                    $error = "Your assigned shop is not active or doesn't exist.";
-                                                }
-                                            } catch (Exception $e) {
-                                                error_log("Shop fetch error: " . $e->getMessage());
-                                                $error = "Error accessing shop details.";
-                                            }
-                                        } else {
-                                            $error = "No shop assigned to your account. Please contact administrator.";
-                                        }
-                                    } else {
-                                        $error = "Invalid user role.";
-                                    }
-                                } else {
-                                    error_log("Password verification failed for user: " . $user['username']);
-                                    
-                                    // Log failed login attempt
-                                    try {
-                                        $failed_stmt = $pdo->prepare("
-                                            INSERT INTO activity_logs (
-                                                activity_type_id, description, activity_data, created_at
-                                            ) VALUES (1, ?, ?, NOW())
-                                        ");
-                                        
-                                        $failed_data = json_encode([
-                                            'attempted_username' => $username,
-                                            'ip_address' => $_SERVER['REMOTE_ADDR'],
-                                            'user_agent' => $_SERVER['HTTP_USER_AGENT'],
-                                            'reason' => 'Invalid password'
-                                        ]);
-                                        
-                                        $failed_stmt->execute([
-                                            'Failed login attempt - invalid password',
-                                            $failed_data
-                                        ]);
-                                    } catch (Exception $e) {
-                                        error_log("Failed to log failed attempt: " . $e->getMessage());
-                                    }
-                                    
-                                    $error = "Invalid username or password.";
-                                }
+                                $error = "No active shops found in the system.";
+                            }
+                        }
+                    } elseif ($user['role'] === 'sales') {
+                        // Sales staff - check if they have a shop assigned
+                        if ($user['shop_id']) {
+                            // Get shop details
+                            $shopStmt = $pdo->prepare("SELECT shop_name FROM shops WHERE id = ? AND is_active = 1");
+                            $shopStmt->execute([$user['shop_id']]);
+                            $shop = $shopStmt->fetch();
+                            
+                            if ($shop) {
+                                $_SESSION['shop_id'] = $user['shop_id'];
+                                $_SESSION['shop_name'] = $shop['shop_name'];
+                                header("Location: dashboard.php");
+                                exit();
+                            } else {
+                                $error = "Your assigned shop is not active or doesn't exist.";
                             }
                         } else {
-                            error_log("No user found with username/email: " . $username);
-                            
-                            // Log failed login attempt for non-existent user
-                            try {
-                                $failed_stmt = $pdo->prepare("
-                                    INSERT INTO activity_logs (
-                                        activity_type_id, description, activity_data, created_at
-                                    ) VALUES (1, ?, ?, NOW())
-                                ");
-                                
-                                $failed_data = json_encode([
-                                    'attempted_username' => $username,
-                                    'ip_address' => $_SERVER['REMOTE_ADDR'],
-                                    'user_agent' => $_SERVER['HTTP_USER_AGENT'],
-                                    'reason' => 'User not found'
-                                ]);
-                                
-                                $failed_stmt->execute([
-                                    'Failed login attempt - user not found',
-                                    $failed_data
-                                ]);
-                            } catch (Exception $e) {
-                                error_log("Failed to log failed attempt: " . $e->getMessage());
-                            }
-                            
-                            $error = "Invalid username or password.";
+                            $error = "No shop assigned to your account. Please contact administrator.";
                         }
+                    } else {
+                        $error = "Invalid user role.";
                     }
+                } else {
+                    // Log failed login attempt
+                    $failed_stmt = $pdo->prepare("
+                        INSERT INTO activity_logs (
+                            activity_type_id, description, activity_data, created_at
+                        ) VALUES (1, ?, ?, NOW())
+                    ");
+                    
+                    $failed_data = json_encode([
+                        'attempted_username' => $username,
+                        'ip_address' => $_SERVER['REMOTE_ADDR'],
+                        'user_agent' => $_SERVER['HTTP_USER_AGENT'],
+                        'reason' => 'Invalid credentials'
+                    ]);
+                    
+                    $failed_stmt->execute([
+                        'Failed login attempt',
+                        $failed_data
+                    ]);
+                    
+                    $error = "Invalid username or password.";
                 }
             } catch (Exception $e) {
                 error_log("Login error: " . $e->getMessage());
-                error_log("Stack trace: " . $e->getTraceAsString());
-                $error = "Login failed. Please try again. (Error: " . $e->getMessage() . ")";
+                $error = "Login failed. Please try again.";
             }
         }
     }
 }
 
-// Get list of users for debugging (remove in production)
-$debug_users = [];
-try {
-    $stmt = $pdo->query("SELECT id, username, email, role, is_active FROM users LIMIT 5");
-    $debug_users = $stmt->fetchAll();
-} catch (Exception $e) {
-    // Ignore errors in debug query
+// Check for remember me cookie
+/*
+if (!isset($_SESSION['user_id']) && isset($_COOKIE['remember'])) {
+    list($selector, $token) = explode(':', $_COOKIE['remember']);
+    $token = hex2bin($token);
+    
+    $stmt = $pdo->prepare("
+        SELECT at.*, u.id as user_id, u.username, u.full_name, u.role, u.email, u.shop_id 
+        FROM auth_tokens at 
+        JOIN users u ON at.user_id = u.id 
+        WHERE at.selector = ? AND at.expires_at > NOW() AND u.is_active = 1
+    ");
+    $stmt->execute([$selector]);
+    $authToken = $stmt->fetch();
+    
+    if ($authToken && hash_equals($authToken['hashed_token'], hash('sha256', $token))) {
+        $_SESSION['user_id'] = (int)$authToken['user_id'];
+        $_SESSION['username'] = $authToken['username'];
+        $_SESSION['full_name'] = $authToken['full_name'];
+        $_SESSION['email'] = $authToken['email'];
+        $_SESSION['role'] = $authToken['role'];
+        $_SESSION['shop_id'] = $authToken['shop_id'];
+        $_SESSION['login_time'] = time();
+        
+        // Redirect to dashboard
+        header("Location: dashboard.php");
+        exit();
+    }
 }
+*/
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -288,7 +284,6 @@ try {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Your existing styles here */
         :root {
             --primary-color: #4361ee;
             --primary-dark: #3651d4;
@@ -314,18 +309,40 @@ try {
             justify-content: center;
             padding: 20px;
             margin: 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23ffffff" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,154.7C960,171,1056,181,1152,165.3C1248,149,1344,107,1392,85.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat bottom;
+            background-size: cover;
+            opacity: 0.1;
         }
         
         .login-container {
             width: 100%;
-            max-width: 500px;
+            max-width: 450px;
             margin: 0 auto;
             animation: fadeInUp 0.8s ease-out;
+            position: relative;
+            z-index: 1;
         }
         
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .login-card {
@@ -352,6 +369,7 @@ try {
             width: 120px;
             height: auto;
             margin-bottom: 20px;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
         }
         
         .login-header h2 {
@@ -379,6 +397,14 @@ try {
             margin-bottom: 8px;
             color: var(--dark-text);
             font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .form-label i {
+            color: var(--primary-color);
+            font-size: 14px;
         }
         
         .input-group {
@@ -400,6 +426,7 @@ try {
             border: none;
             color: var(--gray-text);
             padding: 0 18px;
+            font-size: 16px;
         }
         
         .form-control {
@@ -408,10 +435,17 @@ try {
             font-size: 15px;
             height: auto;
             box-shadow: none;
+            background: transparent;
         }
         
         .form-control:focus {
             box-shadow: none;
+            background: transparent;
+        }
+        
+        .form-control::placeholder {
+            color: #adb5bd;
+            font-size: 14px;
         }
         
         .password-toggle {
@@ -421,6 +455,7 @@ try {
             padding: 0 18px;
             cursor: pointer;
             transition: color 0.2s;
+            font-size: 16px;
         }
         
         .password-toggle:hover {
@@ -438,6 +473,8 @@ try {
             color: white;
             margin: 15px 0 20px;
             transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -447,12 +484,101 @@ try {
             box-shadow: 0 10px 25px rgba(67, 97, 238, 0.4);
         }
         
+        .btn-login:active {
+            transform: translateY(0);
+        }
+        
+        .btn-login::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 5px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.5);
+            opacity: 0;
+            border-radius: 100%;
+            transform: scale(1, 1) translate(-50%);
+            transform-origin: 50% 50%;
+        }
+        
+        .btn-login:focus:not(:active)::after {
+            animation: ripple 1s ease-out;
+        }
+        
+        @keyframes ripple {
+            0% {
+                transform: scale(0, 0);
+                opacity: 0.5;
+            }
+            100% {
+                transform: scale(20, 20);
+                opacity: 0;
+            }
+        }
+        
+        .form-check {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .form-check-input {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            cursor: pointer;
+            border: 2px solid var(--border-color);
+        }
+        
+        .form-check-input:checked {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .form-check-label {
+            color: var(--gray-text);
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .forgot-password {
+            text-align: right;
+            margin: 10px 0;
+        }
+        
+        .forgot-password a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .forgot-password a:hover {
+            color: var(--primary-dark);
+            text-decoration: underline;
+        }
+        
         .alert {
             border-radius: 12px;
             padding: 15px 20px;
             margin-bottom: 25px;
             border: none;
             font-weight: 500;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .alert-danger {
@@ -478,31 +604,153 @@ try {
             color: var(--primary-color);
             text-decoration: none;
             font-weight: 600;
+            font-size: 15px;
+            transition: color 0.2s;
         }
         
-        .debug-info {
-            background: #f8f9fa;
+        .register-link a:hover {
+            color: var(--primary-dark);
+            text-decoration: underline;
+        }
+        
+        .security-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 25px;
+            color: var(--gray-text);
+            font-size: 13px;
+        }
+        
+        .security-badge i {
+            color: #28a745;
+            font-size: 16px;
+        }
+        
+        .security-badge span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        /* Modal Styles */
+        .modal-content {
+            border-radius: var(--radius);
+            border: none;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            border-radius: 0;
+            padding: 20px 25px;
+            border: none;
+        }
+        
+        .modal-header .btn-close {
+            filter: brightness(0) invert(1);
+            opacity: 0.8;
+        }
+        
+        .modal-header .btn-close:hover {
+            opacity: 1;
+        }
+        
+        .modal-title {
+            font-weight: 600;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .modal-body {
+            padding: 30px;
+        }
+        
+        .modal-footer {
+            padding: 20px 30px;
+            border-top: 1px solid var(--border-color);
+            background: var(--light-bg);
+        }
+        
+        .btn-reset {
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            border: none;
+            color: white;
+            padding: 12px 30px;
             border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-reset:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #e9ecef;
+            border: none;
+            color: var(--gray-text);
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-secondary:hover {
+            background: #dee2e6;
+            color: var(--dark-text);
+        }
+        
+        /* Loading animation */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Demo credentials */
+        .demo-credentials {
+            background: var(--light-bg);
+            border-radius: 10px;
             padding: 15px;
             margin-top: 20px;
-            font-size: 12px;
-            border: 1px solid #dee2e6;
-            color: #495057;
+            font-size: 13px;
+            border: 1px dashed var(--border-color);
         }
         
-        .debug-info h6 {
-            margin-bottom: 10px;
-            color: #6c757d;
-            font-weight: 600;
+        .demo-credentials p {
+            margin: 5px 0;
+            color: var(--gray-text);
         }
         
-        .debug-info pre {
-            margin: 0;
-            font-size: 11px;
-            background: #fff;
-            padding: 10px;
+        .demo-credentials i {
+            color: var(--primary-color);
+            margin-right: 5px;
+        }
+        
+        .demo-credentials .badge {
+            background: var(--primary-color);
+            color: white;
+            padding: 3px 8px;
             border-radius: 4px;
-            border: 1px solid #e9ecef;
+            font-size: 11px;
+            margin-left: 5px;
         }
     </style>
 </head>
@@ -511,7 +759,7 @@ try {
         <div class="login-card">
             <div class="login-header">
                 <div class="logo-big">
-                    <img src="assets/logo.png" alt="Ecommer Logo" onerror="this.src='https://via.placeholder.com/120x120?text=Ecommer'">
+                    <img src="assets/logo.png" alt="Ecommer Logo">
                 </div>
                 <h2>Welcome Back!</h2>
                 <p>Sign in to continue to Ecommer</p>
@@ -532,9 +780,11 @@ try {
                     </div>
                 <?php endif; ?>
                 
-                <form method="POST" action="" id="loginForm">
+                <form method="POST" action="" id="loginForm" novalidate>
                     <div class="form-group">
-                        <label class="form-label">Username or Email</label>
+                        <label class="form-label">
+                            <i class="fas fa-user"></i> Username or Email
+                        </label>
                         <div class="input-group">
                             <span class="input-group-text">
                                 <i class="fas fa-user"></i>
@@ -545,12 +795,15 @@ try {
                                    placeholder="Enter your username or email" 
                                    required
                                    autofocus
+                                   autocomplete="username"
                                    value="<?= htmlspecialchars($_POST['username'] ?? '') ?>">
                         </div>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label">Password</label>
+                        <label class="form-label">
+                            <i class="fas fa-lock"></i> Password
+                        </label>
                         <div class="input-group">
                             <span class="input-group-text">
                                 <i class="fas fa-lock"></i>
@@ -560,8 +813,9 @@ try {
                                    id="password" 
                                    class="form-control" 
                                    placeholder="Enter your password" 
-                                   required>
-                            <button type="button" class="password-toggle" id="togglePassword">
+                                   required
+                                   autocomplete="current-password">
+                            <button type="button" class="password-toggle" id="togglePassword" tabindex="-1">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
@@ -573,8 +827,8 @@ try {
                             <label class="form-check-label" for="remember">Remember me</label>
                         </div>
                         
-                        <div>
-                            <a href="#" data-bs-toggle="modal" data-bs-target="#forgotPasswordModal" style="color: var(--primary-color); text-decoration: none; font-size: 14px;">
+                        <div class="forgot-password">
+                            <a href="#" data-bs-toggle="modal" data-bs-target="#forgotPasswordModal">
                                 <i class="fas fa-key me-1"></i> Forgot Password?
                             </a>
                         </div>
@@ -583,49 +837,52 @@ try {
                     <button type="submit" class="btn btn-login" id="loginBtn">
                         <span id="btnText">Sign In</span>
                         <span id="loading" style="display:none;">
-                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                            Signing In...
+                            <span class="spinner"></span> Signing In...
                         </span>
                     </button>
                     
                     <div class="register-link">
                         Don't have an account? <a href="register.php">Create Account</a>
                     </div>
+                    
+                    <div class="security-badge">
+                        <span><i class="fas fa-shield-alt"></i> SSL Secured</span>
+                        <span><i class="fas fa-lock"></i> Encrypted</span>
+                        <span><i class="fas fa-clock"></i> 24/7 Support</span>
+                    </div>
+                    
+                    <!-- Demo Credentials (Remove in production) -->
+                    <div class="demo-credentials">
+                        <p class="mb-2"><i class="fas fa-info-circle"></i> Demo Credentials:</p>
+                        <p><strong>Admin:</strong> admin@ecommer.in / Admin@123 <span class="badge">Admin</span></p>
+                        <p><strong>Sales:</strong> sales@ecommer.in / Sales@123 <span class="badge">Sales</span></p>
+                        <p class="mb-0 text-muted"><small>*For testing purposes only</small></p>
+                    </div>
                 </form>
-                
-                <!-- Debug Information - Remove in production -->
-                <div class="debug-info">
-                    <h6><i class="fas fa-bug me-2"></i>Debug Information</h6>
-                    <p class="mb-2"><strong>PHP Version:</strong> <?= phpversion() ?></p>
-                    <p class="mb-2"><strong>Database Connection:</strong> <?= isset($pdo) ? 'Connected' : 'Not Connected' ?></p>
-                    <p class="mb-2"><strong>Users in Database:</strong> <?= count($debug_users) ?></p>
-                    <?php if (!empty($debug_users)): ?>
-                        <p class="mb-2"><strong>Sample Users:</strong></p>
-                        <pre><?php foreach($debug_users as $u): ?>ID: <?= $u['id'] ?>, Username: <?= $u['username'] ?>, Email: <?= $u['email'] ?>, Role: <?= $u['role'] ?>, Active: <?= $u['is_active'] ? 'Yes' : 'No' ?>
-
-<?php endforeach; ?></pre>
-                    <?php endif; ?>
-                    <p class="mb-0 text-muted mt-2"><small>Check error_log for detailed error messages</small></p>
-                </div>
             </div>
         </div>
     </div>
     
     <!-- Forgot Password Modal -->
-    <div class="modal fade" id="forgotPasswordModal" tabindex="-1">
+    <div class="modal fade" id="forgotPasswordModal" tabindex="-1" aria-labelledby="forgotPasswordModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Reset Password</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="forgotPasswordModalLabel">
+                        <i class="fas fa-key"></i>
+                        Reset Password
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <form method="POST">
+                <form method="POST" id="resetPasswordForm">
                     <div class="modal-body">
                         <p class="text-muted mb-4">
                             Enter your registered email address. We'll send you instructions to reset your password.
                         </p>
                         <div class="form-group">
-                            <label class="form-label">Email Address</label>
+                            <label class="form-label">
+                                <i class="fas fa-envelope"></i> Email Address
+                            </label>
                             <div class="input-group">
                                 <span class="input-group-text">
                                     <i class="fas fa-envelope"></i>
@@ -634,13 +891,21 @@ try {
                                        name="reset_email" 
                                        class="form-control" 
                                        placeholder="Enter your email address" 
-                                       required>
+                                       required
+                                       autocomplete="email">
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Send Reset Link</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i> Cancel
+                        </button>
+                        <button type="submit" class="btn btn-reset" id="resetBtn">
+                            <span id="resetBtnText">Send Reset Link</span>
+                            <span id="resetLoading" style="display:none;">
+                                <span class="spinner"></span> Sending...
+                            </span>
+                        </button>
                     </div>
                 </form>
             </div>
@@ -676,6 +941,25 @@ try {
             loading.style.display = 'inline-block';
         });
         
+        // Reset password form submission
+        document.getElementById('resetPasswordForm').addEventListener('submit', function(e) {
+            const btn = document.getElementById('resetBtn');
+            const btnText = document.getElementById('resetBtnText');
+            const loading = document.getElementById('resetLoading');
+            
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            loading.style.display = 'inline-block';
+        });
+        
+        // Clear success message when modal is closed
+        document.getElementById('forgotPasswordModal').addEventListener('hidden.bs.modal', function () {
+            const successAlert = document.querySelector('.alert-success');
+            if (successAlert) {
+                successAlert.remove();
+            }
+        });
+        
         // Auto-hide alerts after 5 seconds
         setTimeout(function() {
             const alerts = document.querySelectorAll('.alert');
@@ -687,6 +971,68 @@ try {
                 }, 500);
             });
         }, 5000);
+        
+        // Prevent double form submission
+        const forms = document.querySelectorAll('form');
+        forms.forEach(form => {
+            form.addEventListener('submit', function() {
+                const submitButtons = form.querySelectorAll('button[type="submit"]');
+                submitButtons.forEach(button => {
+                    button.disabled = true;
+                });
+            });
+        });
+        
+        // Add keyboard shortcut (Ctrl+Enter) to submit form
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                const form = document.getElementById('loginForm');
+                if (form) {
+                    form.submit();
+                }
+            }
+        });
+        
+        // Input validation and formatting
+        document.querySelector('input[name="username"]').addEventListener('input', function(e) {
+            // Remove leading/trailing spaces
+            this.value = this.value.trim();
+        });
+        
+        // Show/Hide password requirements tooltip
+        const passwordField = document.getElementById('password');
+        passwordField.addEventListener('focus', function() {
+            // You could show a tooltip with password requirements here
+        });
+        
+        // Remember me checkbox enhancement
+        const rememberCheck = document.getElementById('remember');
+        rememberCheck.addEventListener('change', function() {
+            if (this.checked) {
+                // Store preference in session storage
+                sessionStorage.setItem('remember_preference', 'true');
+            }
+        });
+        
+        // Load saved username if any
+        window.addEventListener('load', function() {
+            const savedUsername = localStorage.getItem('saved_username');
+            if (savedUsername) {
+                document.querySelector('input[name="username"]').value = savedUsername;
+            }
+        });
+        
+        // Save username on successful login (you might want to implement this server-side)
+        document.getElementById('loginForm').addEventListener('submit', function() {
+            const remember = document.getElementById('remember').checked;
+            const username = document.querySelector('input[name="username"]').value;
+            
+            if (remember) {
+                localStorage.setItem('saved_username', username);
+            } else {
+                localStorage.removeItem('saved_username');
+            }
+        });
     </script>
 </body>
 </html>
