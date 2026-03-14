@@ -1,223 +1,309 @@
 <div id="sidebar-menu">
-                <!-- Left Menu Start -->
-                <ul class="metismenu list-unstyled" id="side-menu">
-                    <li class="menu-title">Main</li>
+    <!-- Left Menu Start -->
+    <ul class="metismenu list-unstyled" id="side-menu">
+        <li class="menu-title">Main</li>
 
-                    <li>
-                        <a href="index.html" class="waves-effect">
-                            <i class="dripicons-device-desktop"></i>
-                            <span>Dashboard</span>
-                        </a>
-                    </li>
+       
+        <li>
+            <a href="index.php" class="waves-effect">
+                <i class="dripicons-device-desktop"></i>
+                <span>Dashboard</span>
+            </a>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-suitcase"></i>
-                            <span> User Interface </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="ui-buttons.html">Buttons</a></li>
-                            <li><a href="ui-cards.html">Cards</a></li>
-                            <li><a href="ui-tabs-accordions.html">Tabs &amp; Accordions</a></li>
-                            <li><a href="ui-modals.html">Modals</a></li>
-                            <li><a href="ui-images.html">Images</a></li>
-                            <li><a href="ui-alerts.html">Alerts</a></li>
-                            <li><a href="ui-progressbars.html">Progress Bars</a></li>
-                            <li><a href="ui-dropdowns.html">Dropdowns</a></li>
-                            <li><a href="ui-lightbox.html">Lightbox</a></li>
-                            <li><a href="ui-navs.html">Navs</a></li>
-                            <li><a href="ui-pagination.html">Pagination</a></li>
-                            <li><a href="ui-popover-tooltips.html">Popover &amp; Tooltips</a></li>
-                            <li><a href="ui-badge.html">Badge</a></li>
-                            <li><a href="ui-carousel.html">Carousel</a></li>
-                            <li><a href="ui-video.html">Video</a></li>
-                            <li><a href="ui-typography.html">Typography</a></li>
-                            <li><a href="ui-sweet-alert.html">Sweetalert</a></li>
-                            <li><a href="ui-grid.html">Grid</a></li>
-                        </ul>
-                    </li>
+        <!-- Masters Module - Full access to Admin, Limited to Sales -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-database"></i>
+                <span> Masters </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="categories.php">Categories</a></li>
+                <li><a href="products.php">Products</a></li>
+              
+                <li><a href="vehicles.php">Vehicles</a></li>
+                  <li><a href="gst-settings.php">GST manage</a></li>
+                <!-- Admin only masters -->
+                <li class="admin-only"><a href="masters/users.php">Users</a></li>
+                <li class="admin-only"><a href="masters/activity-types.php">Activity Types</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-mail"></i>
-                            <span> Email </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="email-inbox.html">Inbox</a></li>
-                            <li><a href="email-read.html">Email Read</a></li>
-                            <li><a href="email-compose.html">Email Compose</a></li>
-                        </ul>
-                    </li>
+        <!-- Customer Management - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-user"></i>
+                <span> Customers </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="add-customer.php">Add Customer</a></li>
+                <li><a href="manage-customers.php">Manage Customers</a></li>
+                <li><a href="customer-outstanding.php">Outstanding</a></li>
+                <li><a href="referrals.php">Referrals</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="calendar.html" class=" waves-effect">
-                            <i class="dripicons-calendar"></i>
-                            <span>Calendar</span>
-                        </a>
-                    </li>
+        <!-- Supplier Management - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-box"></i>
+                <span> Suppliers </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="add-supplier.php">Add Supplier</a></li>
+                <li><a href="manage-suppliers.php">Manage Suppliers</a></li>
+                <li><a href="supplier-outstanding.php">Outstanding</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-card"></i>
-                            <span> Contact</span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="contacts-grid.html">Contact Grid</a></li>
-                            <li><a href="contacts-list.html">Contact List</a></li>
-                            <li><a href="contacts-profile.html">Profile</a></li>
-                        </ul>
-                    </li>
+        <!-- Sales Module - Primary for Sales staff -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-cart"></i>
+                <span> Sales </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="orders.php">Orders</a></li>
+                <li><a href="invoices.php">Invoices</a></li>
+                <li><a href="create-invoice.php" class="fw-bold text-primary">+ New Invoice</a></li>
+                <li><a href="invoice-settings.php">Invoice Settings</a></li>
+                <li><a href="sales-analytics.php">Sales Analytics</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="waves-effect">
-                            <i class="dripicons-blog"></i><span class="badge rounded-pill bg-success float-end">7</span>
-                            <span> Forms </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="form-elements.html">Form Elements</a></li>
-                            <li><a href="form-validation.html">Form Validation</a></li>
-                            <li><a href="form-advanced.html">Form Advanced</a></li>
-                            <li><a href="form-editors.html">Form Editor</a></li>
-                            <li><a href="form-uploads.html">Form File Upload</a></li>
-                            <li><a href="form-mask.html">Form Mask</a></li>
-                            <li><a href="form-xeditable.html">Form Xeditable</a></li>
-                        </ul>
-                    </li>
+        <!-- Purchase Module - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-shopping-bag"></i>
+                <span> Purchases </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="purchase-orders.php">Purchase Orders</a></li>
+                <li><a href="create-po.php" class="fw-bold text-primary">+ New PO</a></li>
+                <li><a href="gst-input-credit.php">GST Input Credit</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-box"></i>
-                            <span> Icons </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="icons-material.html">Material Design</a></li>
-                            <li><a href="icons-ion.html">Ion Icons</a></li>
-                            <li><a href="icons-fontawesome.html">Font Awesome</a></li>
-                            <li><a href="icons-themify.html">Themify Icons</a></li>
-                            <li><a href="icons-dripicons.html">Dripicons</a></li>
-                            <li><a href="icons-typicons.html">Typicons Icons</a></li>
-                        </ul>
-                    </li>
+        <!-- Stock Management - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-stack"></i>
+                <span> Stock Management </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="current-stock.php">Current Stock</a></li>
+                <li><a href="daywise-stock.php">Day-wise Stock</a></li>
+                <li><a href="stock-transactions.php">Stock Transactions</a></li>
+                <li><a href="stock-report.php">Stock Report</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-graph-line"></i>
-                            <span> Charts </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="charts-morris.html">Morris Charts</a></li>
-                            <li><a href="charts-chartist.html">Chartist Charts</a></li>
-                            <li><a href="charts-chartjs.html">Chartjs Charts</a></li>
-                            <li><a href="charts-flot.html">Flot Charts</a></li>
-                            <li><a href="charts-c3.html">C3 Charts</a></li>
-                            <li><a href="charts-other.html">Jquery Knob Charts</a></li>
-                        </ul>
-                    </li>
+        <!-- Expenses - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-wallet"></i>
+                <span> Expenses </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="add-expense.php">Add Expense</a></li>
+                <li><a href="manage-expenses.php">Manage Expenses</a></li>
+                <li><a href="expense-report.php">Expense Report</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-list"></i>
-                            <span> Tables </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="tables-basic.html">Basic Tables</a></li>
-                            <li><a href="tables-datatable.html">Data Tables</a></li>
-                            <li><a href="tables-responsive.html">Responsive Table</a></li>
-                            <li><a href="tables-editable.html">Editable Table</a></li>
-                        </ul>
-                    </li>
+        <!-- Accounts - Primarily Admin -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-currency"></i>
+                <span> Accounts </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="daywise-amounts.php">Day-wise Amounts</a></li>
+                
+                <li><a href="outstanding-report.php">Outstanding Report</a></li>
+                <!-- Admin only -->
+                <li class="admin-only"><a href="audit-logs.php">Audit Logs</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="waves-effect">
-                            <i class="dripicons-map"></i><span class="badge rounded-pill bg-danger float-end">2</span>
-                            <span> Maps </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="maps-google.html"> Google Maps</a></li>
-                            <li><a href="maps-vector.html"> Vector Maps</a></li>
-                        </ul>
-                    </li>
+        <!-- Reports - Both roles -->
+        <li>
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-graph-line"></i>
+                <span> Reports </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="sales-report.php">Sales Report</a></li>
+                <li><a href="purchase-report.php">Purchase Report</a></li>
+                <li><a href="gst-report.php">GST Report</a></li>
+                <li><a href="customer-report.php">Customer Report</a></li>
+                <li><a href="supplier-report.php">Supplier Report</a></li>
+                <li><a href="profit-loss.php">Profit & Loss</a></li>
+            </ul>
+        </li>
 
-                    <li class="menu-title">Extras</li>
+        <!-- Activity & Logs - Admin only -->
+        <li class="admin-only">
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-clock"></i>
+                <span> Activity Logs </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="activity-logs.php">User Activity</a></li>
+                <li><a href="audit-logs.php">Audit Trail</a></li>
+                <li><a href="login-history.php">Login History</a></li>
+            </ul>
+        </li>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-inbox"></i>
-                            <span> Layouts </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li>
-                                <a href="javascript: void(0);" class="has-arrow waves-effect">
-                                    <span>Vertical</span>
-                                </a>
-                                <ul>
-                                    <li><a href="layout-light-sidebar.html">Light Sidebar</a></li>
-                                    <li><a href="layout-collapsed-sidebar.html">Collapsed Sidebar</a></li>
-                                </ul>
-                            </li>
-                            <li>
-                                <a href="javascript: void(0);" class="has-arrow waves-effect">
-                                    <span>Horizontal</span>
-                                </a>
-                                <ul>
-                                    <li><a href="layouts-horizontal.html">Horizontal</a></li>
-                                    <li><a href="layouts-hori-boxed-width.html">Boxed Width</a></li>
-                                </ul>
-                            </li>
+        <!-- Settings - Admin only -->
+        <li class="admin-only">
+            <a href="javascript: void(0);" class="has-arrow waves-effect">
+                <i class="dripicons-gear"></i>
+                <span> Settings </span>
+            </a>
+            <ul class="sub-menu" aria-expanded="false">
+                <li><a href="company-settings.php">Company Settings</a></li>
+                <li><a href="invoice-settings.php">Invoice Settings</a></li>
+                <li><a href="gst-management.php">GST Settings</a></li>
+                <li><a href="backup.php">Backup & Restore</a></li>
+                <li><a href="/system-settings.php">System Settings</a></li>
+            </ul>
+        </li>
 
-                        </ul>
-                    </li>
+    
+       
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-heart"></i>
-                            <span> Advanced UI </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="advanced-animation.html">Animation</a></li>
-                            <li><a href="advanced-highlight.html">Highlight</a></li>
-                            <li><a href="advanced-rating.html">Ratings</a></li>
-                            <li><a href="advanced-nestable.html">Nestable</a></li>
-                            <li><a href="advanced-alertify.html">Alertify</a></li>
-                            <li><a href="advanced-rangeslider.html">Range Slider</a></li>
-                            <li><a href="advanced-sessiontimeout.html">Session Timeout</a></li>
-                        </ul>
-                    </li>
+        <!-- Logout Option -->
+        <li class="menu-title">Account</li>
+        <li>
+            <a href="login.php" class="waves-effect" id="logoutBtn">
+                <i class="dripicons-exit"></i>
+                <span>Logout</span>
+            </a>
+        </li>
+    </ul>
+</div>
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-copy"></i>
-                            <span> Pages </span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="false">
-                            <li><a href="pages-timeline.html">Timeline</a></li>
-                            <li><a href="pages-invoice.html">Invoice</a></li>
-                            <li><a href="pages-directory.html">Directory</a></li>
-                            <li><a href="pages-login.html">Login</a></li>
-                            <li><a href="pages-register.html">Register</a></li>
-                            <li><a href="pages-recoverpw.html">Recover Password</a></li>
-                            <li><a href="pages-lock-screen.html">Lock Screen</a></li>
-                            <li><a href="pages-starter.html">Starter Page</a></li>
-                            <li><a href="pages-404.html">Error 404</a></li>
-                            <li><a href="pages-500.html">Error 500</a></li>
-                        </ul>
-                    </li>
+<!-- Add this JavaScript at the bottom of your page to handle role-based menu visibility and logout confirmation -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Get current user role from session/global variable
+    // This should be set in your PHP session and passed to JavaScript
+    const userRole = '<?php echo $_SESSION['user_role'] ?? "sales"; ?>'; // Default to sales if not set
+    
+    // Hide admin-only menu items for non-admin users
+    if (userRole !== 'admin') {
+        const adminItems = document.querySelectorAll('.admin-only');
+        adminItems.forEach(item => {
+            item.style.display = 'none';
+        });
+    }
+    
+    // For sales staff, maybe highlight frequently used items
+    if (userRole === 'sales') {
+        // Add a badge or highlight to sales-related menus
+        const salesMenus = document.querySelectorAll('a[href*="sales/"], a[href*="customers/"]');
+        salesMenus.forEach(menu => {
+            // You could add a small indicator or just let them be normally visible
+        });
+    }
 
-                    <li>
-                        <a href="javascript: void(0);" class="has-arrow waves-effect">
-                            <i class="dripicons-network-1"></i>
-                            <span>Multi Level</span>
-                        </a>
-                        <ul class="sub-menu" aria-expanded="true">
-                            <li><a href="javascript: void(0);">Level 1.1</a></li>
-                            <li><a href="javascript: void(0);" class="has-arrow">Level 1.2</a>
-                                <ul class="sub-menu" aria-expanded="true">
-                                    <li><a href="javascript: void(0);">Level 2.1</a></li>
-                                    <li><a href="javascript: void(0);">Level 2.2</a></li>
-                                </ul>
-                            </li>
-                        </ul>
-                    </li>
+    // Add logout confirmation
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Show SweetAlert2 confirmation if available, otherwise use confirm
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    title: 'Are you sure?',
+                    text: 'You will be logged out of the system',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#556ee6',
+                    cancelButtonColor: '#f46a6a',
+                    confirmButtonText: 'Yes, logout',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.location.href = 'logout.php';
+                    }
+                });
+            } else {
+                // Fallback to confirm dialog if SweetAlert not available
+                if (confirm('Are you sure you want to logout?')) {
+                    window.location.href = 'logout.php';
+                }
+            }
+        });
+    }
+});
+</script>
 
-                </ul>
-            </div>
+<!-- Optional: Add some CSS to style the menu -->
+<style>
+.admin-only {
+    border-left: 3px solid #ff5b5b;
+    background-color: rgba(255, 91, 91, 0.05);
+}
+
+.admin-only > a {
+    color: #ff5b5b !important;
+}
+
+.metismenu .fw-bold {
+    font-weight: 600;
+}
+
+.metismenu .text-primary {
+    color: #3bafda !important;
+}
+
+/* Hover effects */
+.metismenu li a:hover {
+    background-color: rgba(59, 175, 218, 0.1);
+}
+
+/* Active menu item */
+.metismenu li.active > a {
+    background-color: #3bafda;
+    color: #fff !important;
+}
+
+/* Logout button styling */
+#logoutBtn {
+    color: #f46a6a !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 10px;
+}
+
+#logoutBtn:hover {
+    background-color: rgba(244, 106, 106, 0.1) !important;
+}
+
+#logoutBtn i {
+    color: #f46a6a;
+}
+
+/* Menu title styling */
+.menu-title {
+    padding: 12px 20px !important;
+    letter-spacing: .05em;
+    pointer-events: none;
+    cursor: default;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #878a99 !important;
+    font-weight: 600;
+}
+
+/* Sub-menu indentation */
+.sub-menu {
+    padding-left: 10px;
+}
+
+.sub-menu li a {
+    padding: 8px 20px 8px 40px !important;
+}
+</style>
