@@ -79,7 +79,7 @@
             </a>
             <ul class="sub-menu" aria-expanded="false">
                 <li><a href="purchase-orders.php">Purchase Orders</a></li>
-                <li><a href="create-po.php" class="fw-bold text-primary">+ New PO</a></li>
+                <li><a href="create-purchase.php"> New Purchase</a></li>
                 <li><a href="gst-input-credit.php">GST Input Credit</a></li>
             </ul>
         </li>

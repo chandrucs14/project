@@ -602,7 +602,7 @@ if (isset($_SESSION['error_message'])) {
         Swal.fire({
             title: 'Delete Supplier?',
             html: `Are you sure you want to delete <strong>${name}</strong>?<br><br>
-                   <span class="text-danger">This action cannot be undone!</span>`,
+                   <span class="text-danger"></span>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#f46a6a',

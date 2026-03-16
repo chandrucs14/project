@@ -10,7 +10,6 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
 $error = '';
 $success = '';
 
@@ -20,35 +19,53 @@ function generatePONumber($pdo) {
     $year = date('y');
     $month = date('m');
     
-    // Get the last PO number
-    $stmt = $pdo->query("SELECT po_number FROM purchase_orders WHERE po_number LIKE 'PO%' ORDER BY id DESC LIMIT 1");
-    $lastNumber = $stmt->fetchColumn();
-    
-    if ($lastNumber) {
-        // Extract the sequence number (last 4 digits)
-        $sequence = intval(substr($lastNumber, -4)) + 1;
-        $newSequence = str_pad($sequence, 4, '0', STR_PAD_LEFT);
-    } else {
-        $newSequence = '0001';
+    try {
+        // Get the last PO number for this month
+        $stmt = $pdo->prepare("SELECT po_number FROM purchase_orders WHERE po_number LIKE :pattern ORDER BY id DESC LIMIT 1");
+        $pattern = $prefix . $year . $month . '%';
+        $stmt->execute([':pattern' => $pattern]);
+        $lastNumber = $stmt->fetchColumn();
+        
+        if ($lastNumber) {
+            // Extract the sequence number (last 4 digits)
+            $sequence = intval(substr($lastNumber, -4)) + 1;
+            $newSequence = str_pad($sequence, 4, '0', STR_PAD_LEFT);
+        } else {
+            $newSequence = '0001';
+        }
+        
+        return $prefix . $year . $month . $newSequence;
+    } catch (Exception $e) {
+        error_log("Error generating PO number: " . $e->getMessage());
+        // Fallback to timestamp-based number
+        return $prefix . $year . $month . date('d') . rand(100, 999);
     }
-    
-    return $prefix . $year . $month . $newSequence;
 }
 
 // Fetch suppliers for dropdown
-$suppStmt = $pdo->query("SELECT id, name, supplier_code, company_name, phone, email, address, city, state, gst_number FROM suppliers WHERE is_active = 1 ORDER BY name");
-$suppliers = $suppStmt->fetchAll();
+try {
+    $suppStmt = $pdo->query("SELECT id, name, supplier_code, company_name, phone, email, address, city, state, gst_number, payment_terms FROM suppliers WHERE is_active = 1 ORDER BY name");
+    $suppliers = $suppStmt->fetchAll();
+} catch (Exception $e) {
+    $suppliers = [];
+    error_log("Error fetching suppliers: " . $e->getMessage());
+}
 
 // Fetch products for dropdown
-$prodStmt = $pdo->query("
-    SELECT p.*, c.name as category_name, g.gst_rate 
-    FROM products p 
-    LEFT JOIN categories c ON p.category_id = c.id 
-    LEFT JOIN gst_details g ON p.gst_id = g.id 
-    WHERE p.is_active = 1 
-    ORDER BY p.name
-");
-$products = $prodStmt->fetchAll();
+try {
+    $prodStmt = $pdo->query("
+        SELECT p.*, c.name as category_name, g.gst_rate, g.id as gst_id 
+        FROM products p 
+        LEFT JOIN categories c ON p.category_id = c.id 
+        LEFT JOIN gst_details g ON p.gst_id = g.id 
+        WHERE p.is_active = 1 
+        ORDER BY p.name
+    ");
+    $products = $prodStmt->fetchAll();
+} catch (Exception $e) {
+    $products = [];
+    error_log("Error fetching products: " . $e->getMessage());
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
@@ -66,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
     // Validation
     if ($supplier_id <= 0) {
         $error = "Please select a supplier.";
-    } elseif (empty($product_ids)) {
+    } elseif (empty($product_ids) || count(array_filter($product_ids)) === 0) {
         $error = "Please add at least one product to the purchase order.";
     } elseif (empty($order_date)) {
         $error = "Order date is required.";
@@ -75,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
             $pdo->beginTransaction();
             
             // Get supplier details
-            $suppStmt = $pdo->prepare("SELECT name, supplier_code FROM suppliers WHERE id = ?");
+            $suppStmt = $pdo->prepare("SELECT name, supplier_code, payment_terms FROM suppliers WHERE id = ?");
             $suppStmt->execute([$supplier_id]);
             $supplier = $suppStmt->fetch();
             
@@ -88,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
             $gst_total = 0;
             $total_amount = 0;
             $items = [];
+            $valid_items = false;
             
             foreach ($product_ids as $index => $product_id) {
                 if (empty($product_id)) continue;
@@ -96,6 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                 $price = floatval($prices[$index] ?? 0);
                 
                 if ($quantity <= 0 || $price <= 0) continue;
+                
+                $valid_items = true;
                 
                 // Get product details for GST calculation
                 $prodStmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
@@ -107,11 +127,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                 // Get GST rate if applicable
                 $gst_rate = 0;
                 $gst_amount = 0;
-                if ($product['gst_id']) {
+                $gst_id = null;
+                
+                if (!empty($product['gst_id'])) {
                     $gstStmt = $pdo->prepare("SELECT gst_rate FROM gst_details WHERE id = ?");
                     $gstStmt->execute([$product['gst_id']]);
                     $gst = $gstStmt->fetch();
-                    $gst_rate = $gst['gst_rate'] ?? 0;
+                    $gst_rate = $gst ? floatval($gst['gst_rate']) : 0;
+                    $gst_id = $product['gst_id'];
                     $gst_amount = ($price * $quantity) * ($gst_rate / 100);
                 }
                 
@@ -123,10 +146,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                     'product_id' => $product_id,
                     'quantity' => $quantity,
                     'price' => $price,
-                    'gst_id' => $product['gst_id'],
+                    'gst_id' => $gst_id,
+                    'gst_rate' => $gst_rate,
                     'gst_amount' => $gst_amount,
                     'total' => $item_total + $gst_amount
                 ];
+            }
+            
+            if (!$valid_items) {
+                throw new Exception("Please add valid products with quantity and price.");
             }
             
             $total_amount = $subtotal + $gst_total;
@@ -134,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
             // Generate PO number
             $po_number = generatePONumber($pdo);
             
-            // Insert purchase order
+            // Insert purchase order - MATCHING YOUR TABLE STRUCTURE
             $stmt = $pdo->prepare("
                 INSERT INTO purchase_orders (
                     po_number, supplier_id, order_date, expected_delivery, 
@@ -142,8 +170,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                     status, notes, created_by, created_at
                 ) VALUES (
                     :po_number, :supplier_id, :order_date, :expected_delivery,
-                    :subtotal, :gst_total, 0, :total_amount,
-                    'draft', :notes, :created_by, NOW()
+                    :subtotal, :gst_total, :discount_amount, :total_amount,
+                    :status, :notes, :created_by, NOW()
                 )
             ");
             
@@ -154,7 +182,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                 ':expected_delivery' => $expected_delivery,
                 ':subtotal' => $subtotal,
                 ':gst_total' => $gst_total,
+                ':discount_amount' => 0.00,
                 ':total_amount' => $total_amount,
+                ':status' => 'draft',
                 ':notes' => $notes ?: null,
                 ':created_by' => $_SESSION['user_id']
             ];
@@ -164,52 +194,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
             if ($result) {
                 $po_id = $pdo->lastInsertId();
                 
-                // Insert purchase order items
-                $itemStmt = $pdo->prepare("
-                    INSERT INTO purchase_order_items (
-                        purchase_order_id, product_id, quantity, received_quantity, 
-                        unit_price, gst_id, gst_amount, total_price, created_at
-                    ) VALUES (
-                        ?, ?, ?, 0, ?, ?, ?, ?, NOW()
-                    )
-                ");
-                
-                foreach ($items as $item) {
-                    $itemStmt->execute([
-                        $po_id,
-                        $item['product_id'],
-                        $item['quantity'],
-                        $item['price'],
-                        $item['gst_id'],
-                        $item['gst_amount'],
-                        $item['total']
-                    ]);
+                // Check if purchase_order_items table exists and insert items
+                try {
+                    $tableCheck = $pdo->query("SHOW TABLES LIKE 'purchase_order_items'");
+                    if ($tableCheck->rowCount() > 0) {
+                        
+                        // Insert purchase order items
+                        $itemStmt = $pdo->prepare("
+                            INSERT INTO purchase_order_items (
+                                purchase_order_id, product_id, quantity, received_quantity, 
+                                unit_price, gst_id, gst_amount, total_price, created_by, created_at
+                            ) VALUES (
+                                ?, ?, ?, 0, ?, ?, ?, ?, ?, NOW()
+                            )
+                        ");
+                        
+                        foreach ($items as $item) {
+                            $itemStmt->execute([
+                                $po_id,
+                                $item['product_id'],
+                                $item['quantity'],
+                                $item['price'],
+                                $item['gst_id'],
+                                $item['gst_amount'],
+                                $item['total'],
+                                $_SESSION['user_id']
+                            ]);
+                        }
+                    }
+                } catch (Exception $e) {
+                    error_log("Error inserting items (table might not exist): " . $e->getMessage());
+                    // Continue even if items table doesn't exist - PO is still created
                 }
                 
-                // Log activity
-                $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 3, ?, ?, NOW())
-                ");
-                
-                $activity_data = json_encode([
-                    'po_id' => $po_id,
-                    'po_number' => $po_number,
-                    'supplier_name' => $supplier['name'],
-                    'total_amount' => $total_amount,
-                    'item_count' => count($items)
-                ]);
-                
-                $activity_stmt->execute([
-                    $_SESSION['user_id'],
-                    "New purchase order created: #$po_number for " . $supplier['name'],
-                    $activity_data
-                ]);
+                // Log activity (optional - only if table exists)
+                try {
+                    $tableCheck = $pdo->query("SHOW TABLES LIKE 'activity_logs'");
+                    if ($tableCheck->rowCount() > 0) {
+                        
+                        $activity_stmt = $pdo->prepare("
+                            INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
+                            VALUES (?, 3, ?, ?, NOW())
+                        ");
+                        
+                        $activity_data = json_encode([
+                            'po_id' => $po_id,
+                            'po_number' => $po_number,
+                            'supplier_id' => $supplier_id,
+                            'supplier_name' => $supplier['name'],
+                            'total_amount' => $total_amount,
+                            'item_count' => count($items)
+                        ]);
+                        
+                        $activity_stmt->execute([
+                            $_SESSION['user_id'],
+                            "New purchase order created: $po_number for " . $supplier['name'],
+                            $activity_data
+                        ]);
+                    }
+                } catch (Exception $e) {
+                    error_log("Error logging activity: " . $e->getMessage());
+                }
                 
                 $pdo->commit();
                 
                 $_SESSION['success_message'] = "Purchase order created successfully. PO Number: " . $po_number;
-                header("Location: view-purchase-order.php?id=" . $po_id);
+                header("Location: purchase-orders.php");
                 exit();
             } else {
                 $pdo->rollBack();
@@ -221,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
                 $pdo->rollBack();
             }
             $error = "Database error: " . $e->getMessage();
-            error_log("PDO Error: " . $e->getMessage());
+            error_log("PDO Error in PO creation: " . $e->getMessage());
         } catch (Exception $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -236,6 +286,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_po'])) {
 function safe_echo($value) {
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
 }
+
+// Check for session messages
+if (isset($_SESSION['success_message'])) {
+    $success = $_SESSION['success_message'];
+    unset($_SESSION['success_message']);
+}
+
+if (isset($_SESSION['error_message'])) {
+    $error = $_SESSION['error_message'];
+    unset($_SESSION['error_message']);
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -243,6 +304,10 @@ function safe_echo($value) {
 <?php include('includes/head.php'); ?>
 
 <head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <style>
         .product-row {
             background-color: #f8f9fa;
@@ -306,6 +371,16 @@ function safe_echo($value) {
             font-size: 11px;
             margin-left: 5px;
         }
+        .select2-container--default .select2-selection--single {
+            height: 38px;
+            border: 1px solid #ced4da;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 36px;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__arrow {
+            height: 36px;
+        }
     </style>
 </head>
 
@@ -343,7 +418,7 @@ function safe_echo($value) {
                             <h4 class="mb-0 font-size-18">Create Purchase Order</h4>
                             <div class="page-title-right">
                                 <ol class="breadcrumb m-0">
-                                    <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
+                                    <li class="breadcrumb-item"><a href="index.php">Dashboard</a></li>
                                     <li class="breadcrumb-item"><a href="purchase-orders.php">Purchase Orders</a></li>
                                     <li class="breadcrumb-item active">Create PO</li>
                                 </ol>
@@ -381,7 +456,7 @@ function safe_echo($value) {
                                     <div class="row mb-3">
                                         <div class="col-md-8">
                                             <label class="form-label">Select Supplier <span class="text-danger">*</span></label>
-                                            <select name="supplier_id" id="supplier_id" class="form-control" required onchange="loadSupplierDetails(this.value)">
+                                            <select name="supplier_id" id="supplier_id" class="form-control select2" required onchange="loadSupplierDetails(this.value)">
                                                 <option value="">Choose supplier...</option>
                                                 <?php foreach ($suppliers as $supp): ?>
                                                     <option value="<?= $supp['id'] ?>" 
@@ -392,7 +467,8 @@ function safe_echo($value) {
                                                             data-address="<?= $supp['address'] ?>"
                                                             data-city="<?= $supp['city'] ?>"
                                                             data-state="<?= $supp['state'] ?>"
-                                                            data-gst="<?= $supp['gst_number'] ?>">
+                                                            data-gst="<?= $supp['gst_number'] ?>"
+                                                            data-terms="<?= $supp['payment_terms'] ?>">
                                                         <?= htmlspecialchars($supp['name']) ?> 
                                                         <?php if ($supp['company_name']): ?>
                                                             (<?= htmlspecialchars($supp['company_name']) ?>)
@@ -426,7 +502,10 @@ function safe_echo($value) {
                                             <div class="col-md-4">
                                                 <strong>GST:</strong> <span id="supp_gst"></span>
                                             </div>
-                                            <div class="col-md-8">
+                                            <div class="col-md-4">
+                                                <strong>Payment Terms:</strong> <span id="supp_terms"></span> days
+                                            </div>
+                                            <div class="col-md-4">
                                                 <strong>Address:</strong> <span id="supp_address"></span>
                                             </div>
                                         </div>
@@ -475,6 +554,7 @@ function safe_echo($value) {
                                                                         data-stock="<?= $prod['current_stock'] ?>"
                                                                         data-unit="<?= $prod['unit'] ?>"
                                                                         data-gst="<?= $prod['gst_rate'] ?? 0 ?>"
+                                                                        data-gst-id="<?= $prod['gst_id'] ?? '' ?>"
                                                                         data-category="<?= $prod['category_name'] ?? 'Uncategorized' ?>">
                                                                     <?= htmlspecialchars($prod['name']) ?> 
                                                                     <small>(<?= htmlspecialchars($prod['category_name'] ?? 'Uncategorized') ?>)</small>
@@ -598,9 +678,10 @@ function safe_echo($value) {
                                 <h5 class="card-title">Recent Products</h5>
                                 <div class="list-group">
                                     <?php 
-                                    $recentStmt = $pdo->query("SELECT name, cost_price, selling_price FROM products WHERE is_active = 1 ORDER BY id DESC LIMIT 5");
-                                    $recentProducts = $recentStmt->fetchAll();
-                                    foreach ($recentProducts as $rp): 
+                                    try {
+                                        $recentStmt = $pdo->query("SELECT name, cost_price, selling_price FROM products WHERE is_active = 1 ORDER BY id DESC LIMIT 5");
+                                        $recentProducts = $recentStmt->fetchAll();
+                                        foreach ($recentProducts as $rp): 
                                     ?>
                                     <div class="list-group-item">
                                         <div class="d-flex justify-content-between align-items-center">
@@ -608,7 +689,12 @@ function safe_echo($value) {
                                             <span class="badge bg-primary">₹<?= number_format($rp['cost_price'] ?? $rp['selling_price'], 2) ?></span>
                                         </div>
                                     </div>
-                                    <?php endforeach; ?>
+                                    <?php 
+                                        endforeach;
+                                    } catch (Exception $e) {
+                                        echo '<div class="list-group-item">No recent products</div>';
+                                    }
+                                    ?>
                                 </div>
                             </div>
                         </div>
@@ -630,6 +716,9 @@ function safe_echo($value) {
                                 </div>
                                 <div class="mb-2">
                                     <span class="badge bg-success">Completed</span> - Fully received
+                                </div>
+                                <div class="mb-2">
+                                    <span class="badge bg-danger">Cancelled</span> - Order cancelled
                                 </div>
                             </div>
                         </div>
@@ -656,12 +745,21 @@ function safe_echo($value) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 CSS and JS -->
-<link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
-<script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- Select2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     let productCount = 1;
+    
+    $(document).ready(function() {
+        // Initialize Select2
+        $('.select2').select2({
+            width: '100%',
+            placeholder: 'Select option'
+        });
+    });
     
     // Form submission loading state
     document.getElementById('poForm')?.addEventListener('submit', function(e) {
@@ -669,17 +767,37 @@ function safe_echo($value) {
         const btnText = document.getElementById('btnText');
         const loading = document.getElementById('loading');
         
-        btn.disabled = true;
-        btnText.style.display = 'none';
-        loading.style.display = 'inline-block';
+        if (btn) {
+            btn.disabled = true;
+            if (btnText) btnText.style.display = 'none';
+            if (loading) loading.style.display = 'inline-block';
+        }
     });
     
     // Add product row
     function addProduct() {
         const container = document.getElementById('products-container');
+        if (!container) return;
+        
         const newRow = document.createElement('div');
         newRow.className = 'product-row';
         newRow.id = `product-row-${productCount}`;
+        
+        // Build options for product dropdown
+        let productOptions = '<option value="">Choose product...</option>';
+        <?php foreach ($products as $prod): ?>
+            productOptions += `<option value="<?= $prod['id'] ?>" 
+                data-price="<?= $prod['cost_price'] ?? $prod['selling_price'] ?>"
+                data-stock="<?= $prod['current_stock'] ?>"
+                data-unit="<?= $prod['unit'] ?>"
+                data-gst="<?= $prod['gst_rate'] ?? 0 ?>"
+                data-gst-id="<?= $prod['gst_id'] ?? '' ?>"
+                data-category="<?= htmlspecialchars($prod['category_name'] ?? 'Uncategorized') ?>">
+                <?= htmlspecialchars(addslashes($prod['name'])) ?> 
+                <small>(<?= htmlspecialchars(addslashes($prod['category_name'] ?? 'Uncategorized')) ?>)</small>
+            </option>`;
+        <?php endforeach; ?>
+        
         newRow.innerHTML = `
             <div class="remove-product" onclick="removeProduct(${productCount})" title="Remove Product">
                 <i class="mdi mdi-close-circle"></i>
@@ -689,18 +807,7 @@ function safe_echo($value) {
                     <div class="mb-2">
                         <label class="form-label">Select Product</label>
                         <select name="product_id[]" class="form-control product-select" onchange="loadProductDetails(this, ${productCount})" required>
-                            <option value="">Choose product...</option>
-                            <?php foreach ($products as $prod): ?>
-                                <option value="<?= $prod['id'] ?>" 
-                                        data-price="<?= $prod['cost_price'] ?? $prod['selling_price'] ?>"
-                                        data-stock="<?= $prod['current_stock'] ?>"
-                                        data-unit="<?= $prod['unit'] ?>"
-                                        data-gst="<?= $prod['gst_rate'] ?? 0 ?>"
-                                        data-category="<?= $prod['category_name'] ?? 'Uncategorized' ?>">
-                                    <?= htmlspecialchars($prod['name']) ?> 
-                                    <small>(<?= htmlspecialchars($prod['category_name'] ?? 'Uncategorized') ?>)</small>
-                                </option>
-                            <?php endforeach; ?>
+                            ${productOptions}
                         </select>
                     </div>
                 </div>
@@ -756,8 +863,11 @@ function safe_echo($value) {
                 cancelButtonText: 'Cancel'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    document.getElementById(`product-row-${index}`).remove();
-                    calculateTotals();
+                    const row = document.getElementById(`product-row-${index}`);
+                    if (row) {
+                        row.remove();
+                        calculateTotals();
+                    }
                 }
             });
         } else {
@@ -773,36 +883,60 @@ function safe_echo($value) {
     // Load product details when selected
     function loadProductDetails(select, index) {
         const selected = select.options[select.selectedIndex];
-        if (selected.value) {
+        if (selected && selected.value) {
             const price = selected.dataset.price;
             const stock = selected.dataset.stock;
             const unit = selected.dataset.unit;
             const gst = selected.dataset.gst;
             const category = selected.dataset.category;
             
-            document.querySelector(`#product-row-${index} .price`).value = price;
-            document.querySelector(`#stock-${index}`).textContent = stock;
-            document.querySelector(`#unit-${index}`).textContent = unit;
-            document.querySelector(`#gst-${index}`).textContent = gst + '%';
-            document.querySelector(`#category-${index}`).textContent = category;
-            
-            calculateRow(index);
+            const row = document.getElementById(`product-row-${index}`);
+            if (row) {
+                const priceInput = row.querySelector('.price');
+                if (priceInput) priceInput.value = price;
+                
+                const stockSpan = document.getElementById(`stock-${index}`);
+                if (stockSpan) stockSpan.textContent = stock;
+                
+                const unitSpan = document.getElementById(`unit-${index}`);
+                if (unitSpan) unitSpan.textContent = unit;
+                
+                const gstSpan = document.getElementById(`gst-${index}`);
+                if (gstSpan) gstSpan.textContent = gst + '%';
+                
+                const categorySpan = document.getElementById(`category-${index}`);
+                if (categorySpan) categorySpan.textContent = category;
+                
+                calculateRow(index);
+            }
         }
     }
     
     // Calculate row total
     function calculateRow(index) {
         const row = document.getElementById(`product-row-${index}`);
-        const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
-        const price = parseFloat(row.querySelector('.price').value) || 0;
-        const gstRate = parseFloat(document.querySelector(`#gst-${index}`)?.textContent) || 0;
+        if (!row) return;
+        
+        const quantityInput = row.querySelector('.quantity');
+        const priceInput = row.querySelector('.price');
+        
+        if (!quantityInput || !priceInput) return;
+        
+        const quantity = parseFloat(quantityInput.value) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        
+        const gstSpan = document.getElementById(`gst-${index}`);
+        const gstRate = gstSpan ? parseFloat(gstSpan.textContent) || 0 : 0;
         
         const subtotal = quantity * price;
         const gstAmount = subtotal * (gstRate / 100);
         const total = subtotal + gstAmount;
         
-        row.querySelector('.row-total').value = total.toFixed(2);
-        document.querySelector(`#gst-amount-${index}`).textContent = '₹' + gstAmount.toFixed(2);
+        const rowTotal = row.querySelector('.row-total');
+        if (rowTotal) rowTotal.value = total.toFixed(2);
+        
+        const gstAmountSpan = document.getElementById(`gst-amount-${index}`);
+        if (gstAmountSpan) gstAmountSpan.textContent = '₹' + gstAmount.toFixed(2);
         
         calculateTotals();
     }
@@ -812,11 +946,19 @@ function safe_echo($value) {
         let subtotal = 0;
         let gstTotal = 0;
         
-        document.querySelectorAll('.product-row').forEach((row, index) => {
-            const rowTotal = parseFloat(row.querySelector('.row-total').value) || 0;
-            const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
-            const price = parseFloat(row.querySelector('.price').value) || 0;
-            const gstRate = parseFloat(document.querySelector(`#gst-${index}`)?.textContent) || 0;
+        document.querySelectorAll('.product-row').forEach((row) => {
+            const quantityInput = row.querySelector('.quantity');
+            const priceInput = row.querySelector('.price');
+            
+            if (!quantityInput || !priceInput) return;
+            
+            const quantity = parseFloat(quantityInput.value) || 0;
+            const price = parseFloat(priceInput.value) || 0;
+            
+            // Get the index from the row ID
+            const rowId = row.id.split('-')[2];
+            const gstSpan = document.getElementById(`gst-${rowId}`);
+            const gstRate = gstSpan ? parseFloat(gstSpan.textContent) || 0 : 0;
             
             const rowSubtotal = quantity * price;
             const rowGst = rowSubtotal * (gstRate / 100);
@@ -827,39 +969,55 @@ function safe_echo($value) {
         
         const total = subtotal + gstTotal;
         
-        document.getElementById('summary-subtotal').textContent = '₹' + subtotal.toFixed(2);
-        document.getElementById('summary-gst').textContent = '₹' + gstTotal.toFixed(2);
-        document.getElementById('summary-total').textContent = '₹' + total.toFixed(2);
+        const summarySubtotal = document.getElementById('summary-subtotal');
+        const summaryGst = document.getElementById('summary-gst');
+        const summaryTotal = document.getElementById('summary-total');
+        
+        if (summarySubtotal) summarySubtotal.textContent = '₹' + subtotal.toFixed(2);
+        if (summaryGst) summaryGst.textContent = '₹' + gstTotal.toFixed(2);
+        if (summaryTotal) summaryTotal.textContent = '₹' + total.toFixed(2);
     }
     
     // Load supplier details
     function loadSupplierDetails(supplierId) {
         const select = document.getElementById('supplier_id');
+        if (!select) return;
+        
         const selected = select.options[select.selectedIndex];
         
-        if (supplierId) {
+        if (supplierId && selected) {
             const code = selected.dataset.code || 'N/A';
-            const company = selected.dataset.company || 'N/A';
             const phone = selected.dataset.phone || 'N/A';
             const email = selected.dataset.email || 'N/A';
+            const gst = selected.dataset.gst || 'N/A';
+            const terms = selected.dataset.terms || 'N/A';
             const address = selected.dataset.address || '';
             const city = selected.dataset.city || '';
             const state = selected.dataset.state || '';
-            const gst = selected.dataset.gst || 'N/A';
             
-            document.getElementById('supp_code').textContent = code;
-            document.getElementById('supp_phone').textContent = phone;
-            document.getElementById('supp_email').textContent = email;
-            document.getElementById('supp_gst').textContent = gst;
+            const suppCode = document.getElementById('supp_code');
+            const suppPhone = document.getElementById('supp_phone');
+            const suppEmail = document.getElementById('supp_email');
+            const suppGst = document.getElementById('supp_gst');
+            const suppTerms = document.getElementById('supp_terms');
+            const suppAddress = document.getElementById('supp_address');
+            const supplierDetails = document.getElementById('supplier_details');
+            
+            if (suppCode) suppCode.textContent = code;
+            if (suppPhone) suppPhone.textContent = phone;
+            if (suppEmail) suppEmail.textContent = email;
+            if (suppGst) suppGst.textContent = gst;
+            if (suppTerms) suppTerms.textContent = terms;
             
             let fullAddress = address;
-            if (city) fullAddress += ', ' + city;
-            if (state) fullAddress += ', ' + state;
-            document.getElementById('supp_address').textContent = fullAddress;
+            if (city) fullAddress += (fullAddress ? ', ' : '') + city;
+            if (state) fullAddress += (fullAddress ? ', ' : '') + state;
+            if (suppAddress) suppAddress.textContent = fullAddress || 'N/A';
             
-            document.getElementById('supplier_details').style.display = 'block';
+            if (supplierDetails) supplierDetails.style.display = 'block';
         } else {
-            document.getElementById('supplier_details').style.display = 'none';
+            const supplierDetails = document.getElementById('supplier_details');
+            if (supplierDetails) supplierDetails.style.display = 'none';
         }
     }
     
@@ -884,7 +1042,7 @@ function safe_echo($value) {
     
     // Form validation before submit
     document.getElementById('poForm')?.addEventListener('submit', function(e) {
-        const supplierId = document.getElementById('supplier_id').value;
+        const supplierId = document.getElementById('supplier_id')?.value;
         if (!supplierId) {
             e.preventDefault();
             Swal.fire({
@@ -896,23 +1054,10 @@ function safe_echo($value) {
             return false;
         }
         
-        let hasProducts = false;
         let hasValidProduct = false;
+        const productSelects = document.querySelectorAll('.product-select');
         
-        document.querySelectorAll('.product-select').forEach(select => {
-            if (select.value) {
-                hasProducts = true;
-                const row = select.closest('.product-row');
-                const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
-                const price = parseFloat(row.querySelector('.price').value) || 0;
-                
-                if (quantity > 0 && price > 0) {
-                    hasValidProduct = true;
-                }
-            }
-        });
-        
-        if (!hasProducts) {
+        if (productSelects.length === 0) {
             e.preventDefault();
             Swal.fire({
                 title: 'Validation Error',
@@ -923,16 +1068,32 @@ function safe_echo($value) {
             return false;
         }
         
+        productSelects.forEach(select => {
+            if (select.value) {
+                const row = select.closest('.product-row');
+                if (row) {
+                    const quantity = parseFloat(row.querySelector('.quantity')?.value) || 0;
+                    const price = parseFloat(row.querySelector('.price')?.value) || 0;
+                    
+                    if (quantity > 0 && price > 0) {
+                        hasValidProduct = true;
+                    }
+                }
+            }
+        });
+        
         if (!hasValidProduct) {
             e.preventDefault();
             Swal.fire({
                 title: 'Validation Error',
-                text: 'Please enter valid quantity and price for all products',
+                text: 'Please add at least one valid product with quantity and price',
                 icon: 'error',
                 confirmButtonColor: '#556ee6'
             });
             return false;
         }
+        
+        return true;
     });
     
     // Keyboard shortcuts
@@ -940,7 +1101,7 @@ function safe_echo($value) {
         // Ctrl+S to submit form
         if (e.ctrlKey && e.key === 's') {
             e.preventDefault();
-            document.getElementById('poForm').submit();
+            document.getElementById('poForm')?.submit();
         }
     });
 
@@ -951,7 +1112,7 @@ function safe_echo($value) {
         const formInputs = form.querySelectorAll('input, select, textarea');
         
         formInputs.forEach(input => {
-            if (input.type !== 'checkbox') {
+            if (input.type !== 'checkbox' && input.type !== 'hidden' && input.type !== 'submit') {
                 input.addEventListener('change', () => { formDirty = true; });
                 input.addEventListener('input', () => { formDirty = true; });
             }
