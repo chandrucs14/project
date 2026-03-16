@@ -427,7 +427,7 @@ $logo_path = getCompanyLogo($settings);
         <?php else: ?>
             
         <?php endif; ?>
-        <strong>Thank you for your business!</strong>
+        
     </div>
 </div>
 
