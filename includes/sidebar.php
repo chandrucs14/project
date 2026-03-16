@@ -3,7 +3,7 @@
     <ul class="metismenu list-unstyled" id="side-menu">
         <li class="menu-title">Main</li>
 
-       
+        <!-- Dashboard -->
         <li>
             <a href="index.php" class="waves-effect">
                 <i class="dripicons-device-desktop"></i>
@@ -11,16 +11,15 @@
             </a>
         </li>
 
-        <!-- Masters Module - Full access to Admin, Limited to Sales -->
+        <!-- Masters Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
-              <i class="dripicons-wallet"></i>
+               <i class="dripicons-wallet"></i>
                 <span> Masters </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
                 <li><a href="categories.php">Categories</a></li>
                 <li><a href="products.php">Products</a></li>
-              
                 <li><a href="vehicles.php">Vehicles</a></li>
                 
                 <!-- Admin only masters -->
@@ -29,7 +28,7 @@
             </ul>
         </li>
 
-        <!-- Customer Management - Both roles -->
+        <!-- Customers Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-user"></i>
@@ -43,7 +42,7 @@
             </ul>
         </li>
 
-        <!-- Supplier Management - Both roles -->
+        <!-- Suppliers Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-box"></i>
@@ -56,7 +55,7 @@
             </ul>
         </li>
 
-        <!-- Sales Module - Primary for Sales staff -->
+        <!-- Sales Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-cart"></i>
@@ -71,7 +70,7 @@
             </ul>
         </li>
 
-        <!-- Purchase Module - Both roles -->
+        <!-- Purchases Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-shopping-bag"></i>
@@ -79,12 +78,12 @@
             </a>
             <ul class="sub-menu" aria-expanded="false">
                 <li><a href="purchase-orders.php">Purchase Orders</a></li>
-                <li><a href="create-purchase.php"> New Purchase</a></li>
+                <li><a href="create-purchase.php">New Purchase</a></li>
                 <li><a href="gst-input-credit.php">GST Input Credit</a></li>
             </ul>
         </li>
 
-        <!-- Stock Management - Both roles -->
+        <!-- Stock Management Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-stack"></i>
@@ -98,7 +97,7 @@
             </ul>
         </li>
 
-        <!-- Expenses - Both roles -->
+        <!-- Expenses Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-wallet"></i>
@@ -111,7 +110,7 @@
             </ul>
         </li>
 
-        <!-- Accounts - Primarily Admin -->
+        <!-- Accounts Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-currency"></i>
@@ -119,14 +118,11 @@
             </a>
             <ul class="sub-menu" aria-expanded="false">
                 <li><a href="daywise-amounts.php">Day-wise Amounts</a></li>
-                
                 <li><a href="outstanding-report.php">Outstanding Report</a></li>
-                <!-- Admin only -->
-                
             </ul>
         </li>
 
-        <!-- Reports - Both roles -->
+        <!-- Reports Module -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-graph-line"></i>
@@ -142,24 +138,16 @@
             </ul>
         </li>
 
-       
-
-        <!-- Settings - Admin only -->
+        <!-- Settings Module (Admin only) -->
         <li class="admin-only">
             <a href="javascript: void(0);" class="has-arrow waves-effect">
                 <i class="dripicons-gear"></i>
                 <span> Settings </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
-               
-                
                 <li><a href="gst-settings.php">GST Settings</a></li>
-                
             </ul>
         </li>
-
-    
-       
 
         <!-- Logout Option -->
         <li class="menu-title">Account</li>
@@ -176,7 +164,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Get current user role from session/global variable
-    // This should be set in your PHP session and passed to JavaScript
     const userRole = '<?php echo $_SESSION['user_role'] ?? "sales"; ?>'; // Default to sales if not set
     
     // Hide admin-only menu items for non-admin users
@@ -184,15 +171,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const adminItems = document.querySelectorAll('.admin-only');
         adminItems.forEach(item => {
             item.style.display = 'none';
-        });
-    }
-    
-    // For sales staff, maybe highlight frequently used items
-    if (userRole === 'sales') {
-        // Add a badge or highlight to sales-related menus
-        const salesMenus = document.querySelectorAll('a[href*="sales/"], a[href*="customers/"]');
-        salesMenus.forEach(menu => {
-            // You could add a small indicator or just let them be normally visible
         });
     }
 
@@ -231,6 +209,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <!-- Optional: Add some CSS to style the menu -->
 <style>
+/* Admin-only menu items styling */
 .admin-only {
     border-left: 3px solid #ff5b5b;
     background-color: rgba(255, 91, 91, 0.05);
@@ -240,23 +219,44 @@ document.addEventListener('DOMContentLoaded', function() {
     color: #ff5b5b !important;
 }
 
-.metismenu .fw-bold {
-    font-weight: 600;
+/* Main menu item styling */
+.metismenu li > a {
+    font-weight: 500;
+    transition: all 0.3s;
 }
 
-.metismenu .text-primary {
-    color: #3bafda !important;
+.metismenu li > a i {
+    font-size: 18px;
+    vertical-align: middle;
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
 }
 
 /* Hover effects */
 .metismenu li a:hover {
     background-color: rgba(59, 175, 218, 0.1);
+    transform: translateX(5px);
 }
 
 /* Active menu item */
 .metismenu li.active > a {
     background-color: #3bafda;
     color: #fff !important;
+    box-shadow: 0 2px 6px rgba(59, 175, 218, 0.3);
+}
+
+.metismenu li.active > a i {
+    color: #fff !important;
+}
+
+/* New item styling */
+.metismenu .fw-bold {
+    font-weight: 600;
+}
+
+.metismenu .text-primary {
+    color: #3bafda !important;
 }
 
 /* Logout button styling */
@@ -268,6 +268,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 #logoutBtn:hover {
     background-color: rgba(244, 106, 106, 0.1) !important;
+    transform: none;
 }
 
 #logoutBtn i {
@@ -286,12 +287,38 @@ document.addEventListener('DOMContentLoaded', function() {
     font-weight: 600;
 }
 
-/* Sub-menu indentation */
+/* Sub-menu styling */
 .sub-menu {
     padding-left: 10px;
 }
 
 .sub-menu li a {
-    padding: 8px 20px 8px 40px !important;
+    padding: 8px 20px 8px 45px !important;
+    font-size: 13px;
+}
+
+.sub-menu li a i {
+    display: none; /* Hide icons in submenu */
+}
+
+/* Arrow indicators */
+.metismenu .has-arrow::after {
+    right: 20px;
+}
+
+/* Animation for menu expansion */
+.metismenu .collapse.in {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 </style>
