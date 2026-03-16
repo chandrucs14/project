@@ -111,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+           
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -497,10 +497,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
         </div>
         
-        <!-- Footer -->
-        <div class="footer">
-            <p class="mb-0">&copy; <?= date('Y') ?> VKM Business Management System. All rights reserved.</p>
-        </div>
+        
     </div>
 
     <!-- JAVASCRIPT -->
