@@ -142,18 +142,7 @@
             </ul>
         </li>
 
-        <!-- Activity & Logs - Admin only -->
-        <li class="admin-only">
-            <a href="javascript: void(0);" class="has-arrow waves-effect">
-                <i class="dripicons-clock"></i>
-                <span> Activity Logs </span>
-            </a>
-            <ul class="sub-menu" aria-expanded="false">
-                <li><a href="activity-logs.php">User Activity</a></li>
-                <li><a href="audit-logs.php">Audit Trail</a></li>
-                <li><a href="login-history.php">Login History</a></li>
-            </ul>
-        </li>
+       
 
         <!-- Settings - Admin only -->
         <li class="admin-only">
