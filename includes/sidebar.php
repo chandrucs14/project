@@ -122,7 +122,7 @@
                 
                 <li><a href="outstanding-report.php">Outstanding Report</a></li>
                 <!-- Admin only -->
-                <li class="admin-only"><a href="audit-logs.php">Audit Logs</a></li>
+                
             </ul>
         </li>
 
