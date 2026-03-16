@@ -313,8 +313,7 @@ $logo_path = getCompanyLogo($settings);
         <tbody>
             <?php
             $subtotal = 0;
-            $total_cgst = 0;
-            $total_sgst = 0;
+            
             
             foreach ($items as $k => $item):
                 $qty = floatval($item['quantity']);
