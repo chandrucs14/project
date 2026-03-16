@@ -22,7 +22,7 @@
                 <li><a href="products.php">Products</a></li>
               
                 <li><a href="vehicles.php">Vehicles</a></li>
-                  <li><a href="gst-settings.php">GST manage</a></li>
+                
                 <!-- Admin only masters -->
                 <li class="admin-only"><a href="users.php">Users</a></li>
                 <li class="admin-only"><a href="activity-types.php">Activity Types</a></li>
@@ -153,7 +153,7 @@
             <ul class="sub-menu" aria-expanded="false">
                 <li><a href="company-settings.php">Company Settings</a></li>
                 <li><a href="invoice-settings.php">Invoice Settings</a></li>
-                <li><a href="gst-management.php">GST Settings</a></li>
+                <li><a href="gst-settings.php">GST Settings</a></li>
                 <li><a href="backup.php">Backup & Restore</a></li>
                 <li><a href="/system-settings.php">System Settings</a></li>
             </ul>
