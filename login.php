@@ -98,8 +98,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- App CSS -->
     <link href="assets/css/app.min.css" id="app-style" rel="stylesheet" type="text/css" />
     
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <!-- Custom CSS -->
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+        
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
@@ -108,24 +118,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             margin: 0;
             padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Animated background bubbles */
+        body::before {
+            content: '';
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            top: -150px;
+            left: -150px;
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        body::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 50%;
+            bottom: -200px;
+            right: -200px;
+            animation: float 8s ease-in-out infinite reverse;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(10deg); }
         }
         
         .auth-page {
             width: 100%;
             max-width: 500px;
             margin: 0 auto;
+            position: relative;
+            z-index: 1;
         }
         
-        .card {
-            border: none;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-            background: white;
-        }
-        
-        .card-body {
+        /* Glass morphism effect */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 20px;
             padding: 50px 40px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            animation: slideUp 0.8s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .logo {
@@ -137,203 +192,309 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             max-width: 180px;
             height: auto;
             margin-bottom: 20px;
+            filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.2));
+            animation: fadeIn 1s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
         }
         
         .logo h3 {
-            color: #333;
-            font-weight: 600;
-            font-size: 24px;
+            color: white;
+            font-weight: 700;
+            font-size: 28px;
             margin: 10px 0 5px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+            letter-spacing: 1px;
         }
         
         .logo p {
-            color: #666;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 15px;
+            font-weight: 300;
+        }
+        
+        .form-label {
+            color: white;
+            font-weight: 500;
             font-size: 14px;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        
+        .input-group {
+            margin-bottom: 5px;
+        }
+        
+        .input-group-text {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-right: none;
+            border-radius: 12px 0 0 12px;
+            color: white;
+            padding: 0 15px;
         }
         
         .form-control {
-            height: 48px;
-            border-radius: 10px;
-            border: 1px solid #e0e0e0;
-            padding: 10px 15px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-left: none;
+            border-radius: 0 12px 12px 0;
+            color: white;
             font-size: 15px;
+            padding: 10px 15px;
             transition: all 0.3s;
         }
         
         .form-control:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.1);
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: none;
+            color: white;
         }
         
-        .input-group-text {
-            background: transparent;
-            border: 1px solid #e0e0e0;
-            border-right: none;
-            border-radius: 10px 0 0 10px;
-            color: #667eea;
-        }
-        
-        .input-group .form-control {
-            border-left: none;
-            border-radius: 0 10px 10px 0;
+        .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 300;
         }
         
         .input-group .btn-outline-secondary {
-            border: 1px solid #e0e0e0;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-left: none;
-            border-radius: 0 10px 10px 0;
-            color: #667eea;
+            border-radius: 0 12px 12px 0;
+            color: white;
+            height: 50px;
+            transition: all 0.3s;
         }
         
         .input-group .btn-outline-secondary:hover {
-            background: #f8f9fa;
-            color: #764ba2;
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
         }
         
         .btn-login {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: white;
             border: none;
-            color: white;
-            height: 48px;
-            border-radius: 10px;
+            color: #667eea;
+            height: 50px;
+            border-radius: 12px;
             font-weight: 600;
             font-size: 16px;
             cursor: pointer;
             transition: all 0.3s;
             width: 100%;
-            margin-top: 10px;
+            margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
         
         .btn-login:hover {
-            opacity: 0.9;
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            background: #f8f9fa;
+        }
+        
+        .btn-login:active {
+            transform: translateY(0);
         }
         
         .form-check-label {
-            color: #666;
+            color: white;
             font-size: 14px;
+            font-weight: 300;
+        }
+        
+        .form-check-input {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
         }
         
         .form-check-input:checked {
-            background-color: #667eea;
-            border-color: #667eea;
+            background-color: white;
+            border-color: white;
+        }
+        
+        .form-check-input:focus {
+            box-shadow: none;
+            border-color: white;
         }
         
         .forgot-password {
-            color: #667eea;
+            color: white;
             text-decoration: none;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 400;
+            transition: all 0.3s;
+            opacity: 0.9;
         }
         
         .forgot-password:hover {
-            color: #764ba2;
+            color: white;
+            opacity: 1;
             text-decoration: underline;
         }
         
         .alert {
-            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            color: white;
             font-size: 14px;
             padding: 12px 15px;
             margin-bottom: 25px;
         }
         
+        .alert-danger {
+            background: rgba(220, 53, 69, 0.2);
+            border-color: rgba(220, 53, 69, 0.3);
+        }
+        
+        .alert-success {
+            background: rgba(40, 167, 69, 0.2);
+            border-color: rgba(40, 167, 69, 0.3);
+        }
+        
+        .alert .btn-close {
+            filter: invert(1) grayscale(100%) brightness(200%);
+            opacity: 0.8;
+        }
+        
         .footer {
             text-align: center;
             margin-top: 25px;
-            color: rgba(255,255,255,0.8);
+            color: rgba(255, 255, 255, 0.8);
             font-size: 13px;
+            font-weight: 300;
         }
         
         .footer a {
             color: white;
             text-decoration: none;
+            font-weight: 400;
         }
         
         .footer a:hover {
             text-decoration: underline;
         }
         
+        /* Input icon animations */
+        .input-group-text i {
+            transition: transform 0.3s;
+        }
+        
+        .input-group:hover .input-group-text i {
+            transform: scale(1.1);
+        }
+        
+        /* Loading spinner */
+        .spinner-border {
+            color: white !important;
+        }
+        
         @media (max-width: 576px) {
-            .card-body {
+            .glass-card {
                 padding: 40px 25px;
             }
             
             .logo img {
                 max-width: 150px;
             }
+            
+            .logo h3 {
+                font-size: 24px;
+            }
+        }
+        
+        /* Remove number input spinners */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        
+        input[type=number] {
+            -moz-appearance: textfield;
         }
     </style>
 </head>
 
 <body>
     <div class="auth-page">
-        <div class="card">
-            <div class="card-body">
-                <div class="logo">
-                    <img src="assets/logo.png" alt="VKM Logo" onerror="this.src='assets/images/logo-default.png'">
-                    <h3>VKM System</h3>
-                    <p class="text-muted">Sign in to access your account</p>
+        <div class="glass-card">
+            <div class="logo">
+                <img src="assets/logo.png" alt="VKM Logo" onerror="this.src='assets/images/logo-default.png'">
+                <h3>VKM System</h3>
+                <p>Sign in to access your account</p>
+            </div>
+            
+            <?php if (!empty($error)): ?>
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="mdi mdi-alert-circle me-2"></i>
+                    <?= htmlspecialchars($error) ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($success)): ?>
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="mdi mdi-check-circle me-2"></i>
+                    <?= htmlspecialchars($success) ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            <?php endif; ?>
+            
+            <form method="POST" action="login.php" id="loginForm">
+                <div class="mb-4">
+                    <label for="username" class="form-label">Username or Email</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="mdi mdi-account"></i></span>
+                        <input type="text" class="form-control" id="username" name="username" 
+                               placeholder="Enter username or email" required 
+                               value="<?= htmlspecialchars($_POST['username'] ?? '') ?>">
+                    </div>
                 </div>
                 
-                <?php if (!empty($error)): ?>
-                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                        <i class="mdi mdi-alert-circle me-2"></i>
-                        <?= htmlspecialchars($error) ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <div class="mb-4">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="mdi mdi-lock"></i></span>
+                        <input type="password" class="form-control" id="password" name="password" 
+                               placeholder="Enter password" required>
+                        <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                            <i class="mdi mdi-eye"></i>
+                        </button>
                     </div>
-                <?php endif; ?>
+                </div>
                 
-                <?php if (!empty($success)): ?>
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="mdi mdi-check-circle me-2"></i>
-                        <?= htmlspecialchars($success) ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <div class="mb-4 d-flex justify-content-between align-items-center">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="remember" name="remember">
+                        <label class="form-check-label" for="remember">
+                            Remember me
+                        </label>
                     </div>
-                <?php endif; ?>
+                    <a href="forgot-password.php" class="forgot-password">
+                        <i class="mdi mdi-lock-reset me-1"></i>Forgot password?
+                    </a>
+                </div>
                 
-                <form method="POST" action="login.php" id="loginForm">
-                    <div class="mb-4">
-                        <label for="username" class="form-label">Username or Email</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="mdi mdi-account"></i></span>
-                            <input type="text" class="form-control" id="username" name="username" 
-                                   placeholder="Enter username or email" required 
-                                   value="<?= htmlspecialchars($_POST['username'] ?? '') ?>">
-                        </div>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label for="password" class="form-label">Password</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="mdi mdi-lock"></i></span>
-                            <input type="password" class="form-control" id="password" name="password" 
-                                   placeholder="Enter password" required>
-                            <button class="btn btn-outline-secondary" type="button" id="togglePassword">
-                                <i class="mdi mdi-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-4 d-flex justify-content-between align-items-center">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="remember" name="remember">
-                            <label class="form-check-label" for="remember">
-                                Remember me
-                            </label>
-                        </div>
-                        <a href="forgot-password.php" class="forgot-password">
-                            <i class="mdi mdi-lock-reset me-1"></i>Forgot password?
-                        </a>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-login" id="loginBtn">
-                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true" id="loginSpinner"></span>
-                        <span id="loginText">Sign In</span>
-                    </button>
-                </form>
-            </div>
+                <button type="submit" class="btn btn-login" id="loginBtn">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true" id="loginSpinner"></span>
+                    <span id="loginText">Sign In</span>
+                </button>
+            </form>
         </div>
         
         <!-- Footer -->
@@ -374,6 +535,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setTimeout(function() {
                 $('.alert').fadeOut('slow');
             }, 5000);
+
+            // Add floating animation to inputs on focus
+            $('.form-control').focus(function() {
+                $(this).closest('.input-group').find('.input-group-text').css('transform', 'scale(1.05)');
+            }).blur(function() {
+                $(this).closest('.input-group').find('.input-group-text').css('transform', 'scale(1)');
+            });
         });
     </script>
 </body>
