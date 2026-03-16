@@ -24,8 +24,8 @@
                 <li><a href="vehicles.php">Vehicles</a></li>
                   <li><a href="gst-settings.php">GST manage</a></li>
                 <!-- Admin only masters -->
-                <li class="admin-only"><a href="masters/users.php">Users</a></li>
-                <li class="admin-only"><a href="masters/activity-types.php">Activity Types</a></li>
+                <li class="admin-only"><a href="users.php">Users</a></li>
+                <li class="admin-only"><a href="activity-types.php">Activity Types</a></li>
             </ul>
         </li>
 
