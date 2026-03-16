@@ -151,11 +151,10 @@
                 <span> Settings </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
-                <li><a href="company-settings.php">Company Settings</a></li>
-                <li><a href="invoice-settings.php">Invoice Settings</a></li>
+               
+                
                 <li><a href="gst-settings.php">GST Settings</a></li>
-                <li><a href="backup.php">Backup & Restore</a></li>
-                <li><a href="/system-settings.php">System Settings</a></li>
+                
             </ul>
         </li>
 
