@@ -10,10 +10,11 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
-// Get user role to determine what to show
-$user_role = $_SESSION['role'] ?? 'sales';
-$is_admin = ($user_role === 'admin');
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
 
 // Get dashboard statistics
 try {
@@ -63,29 +64,35 @@ try {
     ");
     $lowStockProducts = $lowStockStmt->fetchAll();
     
-    // Get recent activity logs for admin
-    if ($is_admin) {
-        $activityStmt = $pdo->query("
-            SELECT al.*, at.name as activity_type, u.full_name as user_name, u.role as user_role
-            FROM activity_logs al
-            LEFT JOIN activity_types at ON al.activity_type_id = at.id
-            LEFT JOIN users u ON al.user_id = u.id
-            ORDER BY al.created_at DESC
-            LIMIT 10
-        ");
-        $recentActivities = $activityStmt->fetchAll();
-        
-        // Get activity statistics for admin
-        $activityStatsStmt = $pdo->query("
-            SELECT 
-                COUNT(*) as total_activities,
-                COUNT(DISTINCT user_id) as active_users,
-                SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_activities,
-                MAX(created_at) as last_activity
-            FROM activity_logs
-        ");
-        $activityStats = $activityStatsStmt->fetch();
-    }
+    // Get recent activity logs
+    $activityStmt = $pdo->query("
+        SELECT 
+            al.*,
+            at.name as activity_type_name,
+            u.full_name as user_name,
+            u.username
+        FROM activity_logs al
+        LEFT JOIN activity_types at ON al.activity_type_id = at.id
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.created_at DESC 
+        LIMIT 10
+    ");
+    $recentActivities = $activityStmt->fetchAll();
+    
+    // Get activity statistics
+    $activityStatsStmt = $pdo->query("
+        SELECT 
+            COUNT(*) as total_activities,
+            COUNT(DISTINCT al.user_id) as active_users,
+            SUM(CASE WHEN DATE(al.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_activities,
+            at.name as most_common_activity
+        FROM activity_logs al
+        LEFT JOIN activity_types at ON al.activity_type_id = at.id
+        GROUP BY at.name
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+    ");
+    $activityStats = $activityStatsStmt->fetch();
     
 } catch (Exception $e) {
     error_log("Dashboard error: " . $e->getMessage());
@@ -100,80 +107,57 @@ try {
     $recentInvoices = [];
     $lowStockProducts = [];
     $recentActivities = [];
-    $activityStats = ['total_activities' => 0, 'active_users' => 0, 'today_activities' => 0, 'last_activity' => null];
+    $activityStats = ['total_activities' => 0, 'active_users' => 0, 'today_activities' => 0, 'most_common_activity' => 'N/A'];
+}
+
+// Function to get activity icon based on type
+function getActivityIcon($type) {
+    switch($type) {
+        case 'login':
+            return 'login';
+        case 'logout':
+            return 'logout';
+        case 'create':
+            return 'plus-circle';
+        case 'update':
+            return 'pencil';
+        case 'delete':
+            return 'delete';
+        case 'view':
+            return 'eye';
+        case 'export':
+            return 'export';
+        case 'print':
+            return 'printer';
+        default:
+            return 'information';
+    }
+}
+
+// Function to get activity color based on type
+function getActivityColor($type) {
+    switch($type) {
+        case 'login':
+            return 'success';
+        case 'logout':
+            return 'secondary';
+        case 'create':
+            return 'primary';
+        case 'update':
+            return 'info';
+        case 'delete':
+            return 'danger';
+        case 'view':
+            return 'warning';
+        default:
+            return 'secondary';
+    }
 }
 ?>
 <!doctype html>
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
-
-<head>
-    <style>
-        .activity-feed {
-            padding: 0;
-            margin: 0;
-            list-style: none;
-        }
-        .activity-feed .feed-item {
-            position: relative;
-            padding-bottom: 20px;
-            padding-left: 30px;
-            border-left: 2px solid #e9ecef;
-        }
-        .activity-feed .feed-item:last-child {
-            border-color: transparent;
-            padding-bottom: 0;
-        }
-        .activity-feed .feed-item::before {
-            content: '';
-            position: absolute;
-            left: -7px;
-            top: 0;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background-color: #556ee6;
-        }
-        .activity-feed .feed-item.feed-item-success::before {
-            background-color: #34c38f;
-        }
-        .activity-feed .feed-item.feed-item-warning::before {
-            background-color: #f9b851;
-        }
-        .activity-feed .feed-item.feed-item-danger::before {
-            background-color: #f46a6a;
-        }
-        .activity-feed .feed-item.feed-item-info::before {
-            background-color: #50a5f1;
-        }
-        .activity-feed .feed-item .date {
-            display: block;
-            position: relative;
-            top: -5px;
-            color: #8c98a8;
-            text-transform: uppercase;
-            font-size: 13px;
-        }
-        .activity-feed .feed-item .activity-text {
-            position: relative;
-            top: -3px;
-        }
-        .activity-badge {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 5px;
-        }
-        .activity-badge.bg-primary { background-color: #556ee6; }
-        .activity-badge.bg-success { background-color: #34c38f; }
-        .activity-badge.bg-warning { background-color: #f9b851; }
-        .activity-badge.bg-danger { background-color: #f46a6a; }
-        .activity-badge.bg-info { background-color: #50a5f1; }
-        .activity-badge.bg-secondary { background-color: #6c757d; }
-    </style>
-</head>
 
 <body data-sidebar="dark">
 
@@ -310,22 +294,19 @@ try {
                 </div>
                 <!-- end row -->
 
-                <!-- Admin Activity Stats Row (visible only to admin) -->
-                <?php if ($is_admin): ?>
+                <!-- Activity Stats Row -->
                 <div class="row">
                     <div class="col-md-4">
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex align-items-center">
-                                    <div class="flex-shrink-0 me-3">
-                                        <div class="avatar-sm">
-                                            <span class="avatar-title bg-soft-primary text-primary rounded-circle">
-                                                <i class="mdi mdi-history font-size-24"></i>
-                                            </span>
-                                        </div>
+                                    <div class="avatar-sm bg-soft-primary rounded-circle me-3">
+                                        <span class="avatar-title text-primary font-size-18">
+                                            <i class="mdi mdi-history"></i>
+                                        </span>
                                     </div>
-                                    <div class="flex-grow-1">
-                                        <h5 class="mb-1"><?= number_format($activityStats['total_activities'] ?? 0) ?></h5>
+                                    <div>
+                                        <h4 class="mb-1"><?= number_format($activityStats['total_activities'] ?? 0) ?></h4>
                                         <p class="text-muted mb-0">Total Activities</p>
                                     </div>
                                 </div>
@@ -336,16 +317,14 @@ try {
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex align-items-center">
-                                    <div class="flex-shrink-0 me-3">
-                                        <div class="avatar-sm">
-                                            <span class="avatar-title bg-soft-success text-success rounded-circle">
-                                                <i class="mdi mdi-account-group font-size-24"></i>
-                                            </span>
-                                        </div>
+                                    <div class="avatar-sm bg-soft-success rounded-circle me-3">
+                                        <span class="avatar-title text-success font-size-18">
+                                            <i class="mdi mdi-calendar-today"></i>
+                                        </span>
                                     </div>
-                                    <div class="flex-grow-1">
-                                        <h5 class="mb-1"><?= number_format($activityStats['active_users'] ?? 0) ?></h5>
-                                        <p class="text-muted mb-0">Active Users</p>
+                                    <div>
+                                        <h4 class="mb-1"><?= number_format($activityStats['today_activities'] ?? 0) ?></h4>
+                                        <p class="text-muted mb-0">Today's Activities</p>
                                     </div>
                                 </div>
                             </div>
@@ -355,26 +334,23 @@ try {
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex align-items-center">
-                                    <div class="flex-shrink-0 me-3">
-                                        <div class="avatar-sm">
-                                            <span class="avatar-title bg-soft-warning text-warning rounded-circle">
-                                                <i class="mdi mdi-calendar-today font-size-24"></i>
-                                            </span>
-                                        </div>
+                                    <div class="avatar-sm bg-soft-info rounded-circle me-3">
+                                        <span class="avatar-title text-info font-size-18">
+                                            <i class="mdi mdi-account-group"></i>
+                                        </span>
                                     </div>
-                                    <div class="flex-grow-1">
-                                        <h5 class="mb-1"><?= number_format($activityStats['today_activities'] ?? 0) ?></h5>
-                                        <p class="text-muted mb-0">Today's Activities</p>
+                                    <div>
+                                        <h4 class="mb-1"><?= number_format($activityStats['active_users'] ?? 0) ?></h4>
+                                        <p class="text-muted mb-0">Active Users</p>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <?php endif; ?>
-                <!-- end admin stats row -->
+                <!-- end activity stats row -->
 
-                <!-- Revenue and Charts Row -->
+                <!-- Revenue and Quick Actions Row -->
                 <div class="row">
                     <div class="col-xl-8">
                         <div class="card">
@@ -540,7 +516,7 @@ try {
 
                 <!-- Recent Invoices and Activity Logs Row -->
                 <div class="row">
-                    <div class="col-xl-8">
+                    <div class="col-xl-7">
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Recent Invoices</h4>
@@ -602,85 +578,69 @@ try {
                                     </table>
                                 </div>
                                 <div class="text-center mt-3">
-                                    <a href="manage-invoices.php" class="text-primary">View all invoices <i class="mdi mdi-arrow-right"></i></a>
+                                    <a href="invoices.php" class="text-primary">View all invoices <i class="mdi mdi-arrow-right"></i></a>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Activity Logs Section - Visible only to admin -->
-                    <div class="col-xl-4">
-                        <?php if ($is_admin): ?>
+                    <div class="col-xl-5">
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Recent Activity Logs</h4>
                                 
-                                <?php if (empty($recentActivities)): ?>
-                                    <div class="text-center py-4">
-                                        <i class="mdi mdi-history" style="font-size: 48px; color: #ccc;"></i>
-                                        <h5 class="mt-3">No activities found</h5>
-                                    </div>
-                                <?php else: ?>
-                                    <ol class="activity-feed">
+                                <div class="activity-feed mb-0">
+                                    <?php if (empty($recentActivities)): ?>
+                                        <div class="text-center py-4">
+                                            <i class="mdi mdi-history" style="font-size: 36px; color: #ccc;"></i>
+                                            <p class="mt-2 text-muted">No recent activities</p>
+                                        </div>
+                                    <?php else: ?>
                                         <?php foreach ($recentActivities as $activity): ?>
-                                            <?php
-                                            // Determine activity type for styling
-                                            $feedClass = 'feed-item';
-                                            switch($activity['activity_type']) {
-                                                case 'create':
-                                                    $feedClass .= ' feed-item-success';
-                                                    break;
-                                                case 'update':
-                                                    $feedClass .= ' feed-item-info';
-                                                    break;
-                                                case 'delete':
-                                                    $feedClass .= ' feed-item-danger';
-                                                    break;
-                                                case 'login':
-                                                    $feedClass .= ' feed-item-primary';
-                                                    break;
-                                                default:
-                                                    $feedClass .= ' feed-item-secondary';
-                                            }
-                                            
-                                            // Format time
-                                            $time = strtotime($activity['created_at']);
-                                            $now = time();
-                                            $diff = $now - $time;
-                                            
-                                            if ($diff < 60) {
-                                                $timeDisplay = 'Just now';
-                                            } elseif ($diff < 3600) {
-                                                $minutes = floor($diff / 60);
-                                                $timeDisplay = $minutes . ' minute' . ($minutes > 1 ? 's' : '') . ' ago';
-                                            } elseif ($diff < 86400) {
-                                                $hours = floor($diff / 3600);
-                                                $timeDisplay = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' ago';
-                                            } else {
-                                                $timeDisplay = date('d M Y, h:i A', $time);
-                                            }
-                                            ?>
-                                            <li class="<?= $feedClass ?>">
-                                                <span class="date"><?= $timeDisplay ?></span>
-                                                <span class="activity-text">
-                                                    <strong><?= htmlspecialchars($activity['user_name'] ?? 'System') ?></strong>
-                                                    <?php if ($activity['user_role']): ?>
-                                                        <span class="badge bg-soft-secondary text-secondary"><?= ucfirst($activity['user_role']) ?></span>
-                                                    <?php endif; ?>
-                                                    <br>
-                                                    <?= htmlspecialchars($activity['description'] ?? 'No description') ?>
-                                                </span>
-                                            </li>
+                                        <div class="feed-item">
+                                            <div class="feed-item-list">
+                                                <div class="d-flex align-items-start">
+                                                    <div class="flex-shrink-0 me-3">
+                                                        <div class="avatar-sm bg-soft-<?= getActivityColor($activity['activity_type_name']) ?> rounded-circle">
+                                                            <span class="avatar-title text-<?= getActivityColor($activity['activity_type_name']) ?> font-size-18">
+                                                                <i class="mdi mdi-<?= getActivityIcon($activity['activity_type_name']) ?>"></i>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="flex-grow-1">
+                                                        <h6 class="mt-0 mb-1">
+                                                            <?= htmlspecialchars($activity['user_name'] ?? $activity['username'] ?? 'System') ?>
+                                                            <span class="badge bg-soft-<?= getActivityColor($activity['activity_type_name']) ?> text-<?= getActivityColor($activity['activity_type_name']) ?> ms-2">
+                                                                <?= ucfirst($activity['activity_type_name'] ?? 'action') ?>
+                                                            </span>
+                                                        </h6>
+                                                        <p class="text-muted mb-1">
+                                                            <?= htmlspecialchars($activity['description'] ?? 'No description') ?>
+                                                        </p>
+                                                        <small class="text-muted">
+                                                            <i class="mdi mdi-clock-outline me-1"></i>
+                                                            <?= date('d M Y, h:i A', strtotime($activity['created_at'])) ?>
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <?php endforeach; ?>
-                                    </ol>
-                                    <div class="text-center mt-3">
-                                        <a href="activity-logs.php" class="text-primary">View all activities <i class="mdi mdi-arrow-right"></i></a>
-                                    </div>
-                                <?php endif; ?>
+                                        
+                                        <div class="text-center mt-3">
+                                            <a href="activity-logs.php" class="text-primary">View all logs <i class="mdi mdi-arrow-right"></i></a>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
-                        <?php else: ?>
-                        <!-- Low Stock Alert for non-admin users -->
+                    </div>
+                </div>
+                <!-- end row -->
+
+                <!-- Low Stock Alert Row -->
+                <div class="row">
+                    <div class="col-xl-12">
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Low Stock Alert</h4>
@@ -699,6 +659,7 @@ try {
                                                     <th>Current Stock</th>
                                                     <th>Reorder Level</th>
                                                     <th>Status</th>
+                                                    <th>Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -712,18 +673,22 @@ try {
                                                             <i class="mdi mdi-alert"></i> Low Stock
                                                         </span>
                                                     </td>
+                                                    <td>
+                                                        <a href="current-stock.php?product_id=<?= $product['id'] ?>" class="btn btn-sm btn-soft-primary">
+                                                            <i class="mdi mdi-eye"></i> View
+                                                        </a>
+                                                    </td>
                                                 </tr>
                                                 <?php endforeach; ?>
                                             </tbody>
                                         </table>
                                     </div>
                                     <div class="text-center mt-3">
-                                        <a href="manage-products.php" class="text-primary">Manage products <i class="mdi mdi-arrow-right"></i></a>
+                                        <a href="current-stock.php" class="text-primary">View all stock <i class="mdi mdi-arrow-right"></i></a>
                                     </div>
                                 <?php endif; ?>
                             </div>
                         </div>
-                        <?php endif; ?>
                     </div>
                 </div>
                 <!-- end row -->
@@ -832,12 +797,9 @@ try {
     generateMiniChart('#total-invoices-chart', '#f46a6a', [25, 22, 28, 24, 30, 28, 32]);
 
     // Auto-refresh activity logs every 30 seconds (optional)
-    <?php if ($is_admin): ?>
-    setInterval(function() {
-        // You can implement AJAX refresh here if needed
-        console.log('Auto-refresh activity logs');
-    }, 30000);
-    <?php endif; ?>
+    // setInterval(function() {
+    //     location.reload();
+    // }, 30000);
 </script>
 
 </body>
