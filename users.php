@@ -343,9 +343,7 @@ try {
                                     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addUserModal">
                                         <i class="mdi mdi-account-plus"></i> Add New User
                                     </button>
-                                    <button type="button" class="btn btn-success" id="exportBtn">
-                                        <i class="mdi mdi-export"></i> Export Users
-                                    </button>
+                                  
                                     <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
