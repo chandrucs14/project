@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_category'])) {
     }
 }
 
-// Handle delete
+// Handle delete - THIS MUST BE BEFORE THE QUERY
 if (isset($_GET['delete']) && isset($_GET['id'])) {
     $category_id = (int)$_GET['id'];
     
@@ -166,32 +166,39 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
         $getStmt->execute([$category_id]);
         $category = $getStmt->fetch();
         
-        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
-        $result = $stmt->execute([$category_id]);
-        
-        if ($result && $stmt->rowCount() > 0) {
-            // Log activity
-            $activity_stmt = $pdo->prepare("
-                INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                VALUES (?, 5, ?, ?, NOW())
-            ");
+        if ($category) {
+            $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
+            $result = $stmt->execute([$category_id]);
             
-            $activity_data = json_encode([
-                'category_id' => $category_id,
-                'category_name' => $category['name']
-            ]);
-            
-            $activity_stmt->execute([
-                $_SESSION['user_id'],
-                "Category deleted: " . $category['name'],
-                $activity_data
-            ]);
-            
-            $pdo->commit();
-            $_SESSION['success_message'] = "Category deleted successfully.";
+            if ($result && $stmt->rowCount() > 0) {
+                // Log activity
+                $activity_stmt = $pdo->prepare("
+                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
+                    VALUES (?, 5, ?, ?, NOW())
+                ");
+                
+                $activity_data = json_encode([
+                    'category_id' => $category_id,
+                    'category_name' => $category['name']
+                ]);
+                
+                $activity_stmt->execute([
+                    $_SESSION['user_id'],
+                    "Category deleted: " . $category['name'],
+                    $activity_data
+                ]);
+                
+                $pdo->commit();
+                $_SESSION['success_message'] = "Category deleted successfully.";
+            }
         }
         
-        header("Location: categories.php?" . http_build_query(['search' => $search, 'page' => $page]));
+        // Redirect with search and page parameters
+        $redirect_url = "categories.php?" . http_build_query([
+            'search' => $search,
+            'page' => $page
+        ]);
+        header("Location: " . $redirect_url);
         exit();
         
     } catch (Exception $e) {
@@ -199,7 +206,11 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
             $pdo->rollBack();
         }
         $_SESSION['error_message'] = $e->getMessage();
-        header("Location: categories.php?" . http_build_query(['search' => $search, 'page' => $page]));
+        $redirect_url = "categories.php?" . http_build_query([
+            'search' => $search,
+            'page' => $page
+        ]);
+        header("Location: " . $redirect_url);
         exit();
     }
 }
@@ -256,6 +267,13 @@ if (isset($_SESSION['error_message'])) {
 
 <?php include('includes/head.php'); ?>
 
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+
 <body data-sidebar="dark">
 
 <!-- Loader -->
@@ -290,7 +308,7 @@ if (isset($_SESSION['error_message'])) {
                             <h4 class="mb-0 font-size-18">Manage Categories</h4>
                             <div class="page-title-right">
                                 <ol class="breadcrumb m-0">
-                                    <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
+                                    <li class="breadcrumb-item"><a href="index.php">Dashboard</a></li>
                                     <li class="breadcrumb-item"><a href="products.php">Products</a></li>
                                     <li class="breadcrumb-item active">Categories</li>
                                 </ol>
@@ -319,19 +337,41 @@ if (isset($_SESSION['error_message'])) {
 
                 <!-- Statistics Cards -->
                 <div class="row">
-                    <div class="col-md-6 col-xl-6">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-info mt-2"><?= number_format($stats['total'] ?? 0) ?></h3>
-                                Total Categories
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-primary text-primary rounded-circle">
+                                                <i class="mdi mdi-tag-multiple font-size-24"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Total Categories</p>
+                                        <h4><?= number_format($stats['total'] ?? 0) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-6 col-xl-6">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-purple mt-2"><?= number_format($stats['main'] ?? 0) ?></h3>
-                                Main Categories
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-success text-success rounded-circle">
+                                                <i class="mdi mdi-tag font-size-24"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Main Categories</p>
+                                        <h4><?= number_format($stats['main'] ?? 0) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -446,13 +486,13 @@ if (isset($_SESSION['error_message'])) {
                                                                         title="Edit">
                                                                     <i class="mdi mdi-pencil"></i>
                                                                 </button>
-                                                                <a href="javascript:void(0);" 
+                                                                <button type="button" 
                                                                    onclick="confirmDelete(<?= $category['id'] ?>, '<?= htmlspecialchars(addslashes($category['name'])) ?>')"
                                                                    class="btn btn-sm btn-soft-danger"
                                                                    data-bs-toggle="tooltip" 
                                                                    title="Delete">
                                                                     <i class="mdi mdi-delete"></i>
-                                                                </a>
+                                                                </button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -593,9 +633,8 @@ if (isset($_SESSION['error_message'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 -->
-<link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
-<script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
     // Initialize tooltips
@@ -621,39 +660,144 @@ if (isset($_SESSION['error_message'])) {
         document.getElementById('edit_name').value = category.name;
         document.getElementById('edit_description').value = category.description || '';
         document.getElementById('edit_parent_id').value = category.parent_category_id || '';
-        $('#editCategoryModal').modal('show');
+        
+        var modal = new bootstrap.Modal(document.getElementById('editCategoryModal'));
+        modal.show();
     }
 
-    // Confirm delete
+    // Confirm delete - FIXED VERSION
     function confirmDelete(id, name) {
         Swal.fire({
             title: 'Delete Category?',
             html: `Are you sure you want to delete <strong>${name}</strong>?<br><br>
-                   <span class="text-danger">This action cannot be undone!</span>`,
+                   <span class="text-danger"></span>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#f46a6a',
             cancelButtonColor: '#556ee6',
             confirmButtonText: 'Yes, delete it!',
-            cancelButtonText: 'Cancel'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = `categories.php?delete=1&id=${id}`;
-            }
+            cancelButtonText: 'Cancel',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                // Get current search and page parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const search = urlParams.get('search') || '';
+                const page = urlParams.get('page') || '1';
+                
+                // Redirect with all parameters
+                window.location.href = `categories.php?delete=1&id=${id}&search=${encodeURIComponent(search)}&page=${page}`;
+                
+                // Return a promise that never resolves (since we're redirecting)
+                return new Promise(() => {});
+            },
+            allowOutsideClick: () => !Swal.isLoading()
         });
     }
 
     // Search debounce
     let searchTimeout;
-    document.querySelector('input[name="search"]')?.addEventListener('keyup', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            if (this.value.length >= 2 || this.value.length === 0) {
-                document.getElementById('filterForm').submit();
-            }
-        }, 500);
+    const searchInput = document.querySelector('input[name="search"]');
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (this.value.length >= 2 || this.value.length === 0) {
+                    document.getElementById('filterForm').submit();
+                }
+            }, 500);
+        });
+    }
+
+    // Ensure Bootstrap JS is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof bootstrap === 'undefined') {
+            console.error('Bootstrap JS not loaded');
+        }
+        if (typeof Swal === 'undefined') {
+            console.error('SweetAlert2 not loaded');
+        }
     });
 </script>
+
+<style>
+/* Avatar styling */
+.avatar-sm {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+/* Button hover effects */
+.btn-soft-primary:hover,
+.btn-soft-danger:hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s;
+}
+
+/* Table row hover */
+.table tbody tr:hover {
+    background-color: rgba(0,0,0,.02);
+}
+
+/* Badge styling */
+.badge {
+    padding: 6px 10px;
+    font-size: 11px;
+}
+
+/* Alert animations */
+.alert {
+    transition: opacity 0.5s ease;
+}
+
+/* SweetAlert2 customization */
+.swal2-popup {
+    font-family: inherit;
+}
+
+.swal2-title {
+    font-size: 1.2rem;
+}
+
+.swal2-html-container {
+    font-size: 0.95rem;
+}
+
+.swal2-confirm {
+    background-color: #f46a6a !important;
+}
+
+.swal2-cancel {
+    background-color: #556ee6 !important;
+}
+
+/* Modal header styling */
+.modal-header.bg-success {
+    background-color: #34c38f !important;
+}
+
+.modal-header.bg-primary {
+    background-color: #556ee6 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .btn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .btn-group .btn {
+        border-radius: 4px !important;
+        margin: 0;
+    }
+}
+</style>
 
 </body>
 </html>
