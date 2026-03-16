@@ -74,7 +74,7 @@ body{
 }
 
 .logo img{
-    width:100px;
+    width:150px;
 }
 
 .login-title{
