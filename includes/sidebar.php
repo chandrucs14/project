@@ -176,7 +176,7 @@
         <!-- Logout Option -->
         <li class="menu-title">Account</li>
         <li>
-            <a href="login.php" class="waves-effect" id="logoutBtn">
+            <a href="logout.php" class="waves-effect" id="logoutBtn">
                 <i class="dripicons-exit"></i>
                 <span>Logout</span>
             </a>
