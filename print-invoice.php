@@ -424,9 +424,7 @@ $logo_path = getCompanyLogo($settings);
     <div class="footer">
         <?php if (!empty($settings['invoice_footer_text'])): ?>
             <?= nl2br(htmlspecialchars($settings['invoice_footer_text'])) ?><br>
-        <?php else: ?>
-            This is a computer generated invoice.<br>
-        <?php endif; ?>
+        
         <strong>Thank you for your business!</strong>
     </div>
 </div>
