@@ -14,7 +14,7 @@
         <!-- Masters Module - Full access to Admin, Limited to Sales -->
         <li>
             <a href="javascript: void(0);" class="has-arrow waves-effect">
-                <i class="dripicons-database"></i>
+              <i class="dripicons-wallet"></i>
                 <span> Masters </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
