@@ -70,11 +70,11 @@ body{
 
 .logo{
     text-align:center;
-    margin-bottom:80px;
+    margin-bottom:20px;
 }
 
 .logo img{
-    width:70px;
+    width:100px;
 }
 
 .login-title{
