@@ -10,6 +10,14 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
+
+
+// Check if user is admin (optional - remove if you want all users to access)
+// if ($_SESSION['user_role'] !== 'admin') {
+//     header("Location: index.php?error=unauthorized");
+//     exit();
+// }
+
 // Pagination settings
 $records_per_page = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 20;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -40,134 +48,75 @@ try {
     error_log("Error fetching activity types: " . $e->getMessage());
 }
 
-// Create a union query to combine activity_logs with login activities from users table
+// Build query with filters
 $query = "
-    SELECT 
-        al.id,
-        al.user_id,
-        al.activity_type_id,
-        al.description,
-        al.activity_data,
-        al.created_at,
-        al.created_by,
-        u.username as user_username,
-        u.full_name as user_full_name,
-        at.name as activity_name,
-        at.description as activity_description,
-        cu.username as created_by_username,
-        cu.full_name as created_by_full_name,
-        NULL as ip_address,
-        NULL as user_agent
+    SELECT al.*, 
+           u.username as user_username,
+           u.full_name as user_full_name,
+           at.name as activity_name,
+           at.description as activity_description,
+           cu.username as created_by_username,
+           cu.full_name as created_by_full_name
     FROM activity_logs al
     LEFT JOIN users u ON al.user_id = u.id
     LEFT JOIN activity_types at ON al.activity_type_id = at.id
     LEFT JOIN users cu ON al.created_by = cu.id
-    
-    UNION ALL
-    
-    SELECT 
-        CONCAT('login_', u.id, '_', UNIX_TIMESTAMP(u.last_login)) as id,
-        u.id as user_id,
-        (SELECT id FROM activity_types WHERE name = 'login' LIMIT 1) as activity_type_id,
-        CONCAT('User ', u.username, ' logged in') as description,
-        JSON_OBJECT('ip_address', NULL, 'user_agent', NULL) as activity_data,
-        u.last_login as created_at,
-        u.id as created_by,
-        u.username as user_username,
-        u.full_name as user_full_name,
-        'login' as activity_name,
-        'User login activity' as activity_description,
-        u.username as created_by_username,
-        u.full_name as created_by_full_name,
-        NULL as ip_address,
-        NULL as user_agent
-    FROM users u
-    WHERE u.last_login IS NOT NULL
+    WHERE 1=1
 ";
 
 $count_query = "
-    SELECT COUNT(*) as total FROM (
-        SELECT id FROM activity_logs WHERE 1=1
-        UNION ALL
-        SELECT CONCAT('login_', id) as id FROM users WHERE last_login IS NOT NULL
-    ) as combined
+    SELECT COUNT(*) as total 
+    FROM activity_logs al
+    WHERE 1=1
 ";
 
 $params = [];
 
 // Apply date filters
 if (!empty($filter_date_from)) {
-    $query .= " WHERE DATE(created_at) >= :date_from";
-    $date_filter_applied = true;
-} else {
-    $query .= " WHERE 1=1";
+    $query .= " AND DATE(al.created_at) >= :date_from";
+    $count_query .= " AND DATE(created_at) >= :date_from";
+    $params[':date_from'] = $filter_date_from;
 }
 
 if (!empty($filter_date_to)) {
-    $query .= " AND DATE(created_at) <= :date_to";
+    $query .= " AND DATE(al.created_at) <= :date_to";
+    $count_query .= " AND DATE(created_at) <= :date_to";
     $params[':date_to'] = $filter_date_to;
-}
-
-if (!empty($filter_date_from)) {
-    $params[':date_from'] = $filter_date_from;
 }
 
 // Apply user filter
 if (!empty($filter_user)) {
-    $query .= " AND user_id = :user_id";
+    $query .= " AND al.user_id = :user_id";
+    $count_query .= " AND user_id = :user_id";
     $params[':user_id'] = $filter_user;
 }
 
 // Apply activity type filter
 if (!empty($filter_activity_type)) {
-    $query .= " AND activity_type_id = :activity_type_id";
+    $query .= " AND al.activity_type_id = :activity_type_id";
+    $count_query .= " AND activity_type_id = :activity_type_id";
     $params[':activity_type_id'] = $filter_activity_type;
 }
 
 // Apply search
 if (!empty($search)) {
-    $query .= " AND (description LIKE :search OR activity_data LIKE :search)";
+    $query .= " AND (al.description LIKE :search OR al.activity_data LIKE :search)";
+    $count_query .= " AND (description LIKE :search OR activity_data LIKE :search)";
     $params[':search'] = '%' . $search . '%';
 }
 
 // Get total records for pagination
-$countStmt = $pdo->prepare("
-    SELECT COUNT(*) as total FROM (
-        SELECT id FROM activity_logs WHERE 1=1
-        " . (!empty($filter_date_from) ? " AND DATE(created_at) >= :date_from" : "") . "
-        " . (!empty($filter_date_to) ? " AND DATE(created_at) <= :date_to" : "") . "
-        " . (!empty($filter_user) ? " AND user_id = :user_id" : "") . "
-        " . (!empty($filter_activity_type) ? " AND activity_type_id = :activity_type_id" : "") . "
-        " . (!empty($search) ? " AND (description LIKE :search OR activity_data LIKE :search)" : "") . "
-        
-        UNION ALL
-        
-        SELECT CONCAT('login_', id) as id FROM users 
-        WHERE last_login IS NOT NULL
-        " . (!empty($filter_date_from) ? " AND DATE(last_login) >= :date_from" : "") . "
-        " . (!empty($filter_date_to) ? " AND DATE(last_login) <= :date_to" : "") . "
-        " . (!empty($filter_user) ? " AND id = :user_id" : "") . "
-    ) as combined
-");
-
-// Only bind parameters that exist
-$bindParams = [];
-if (!empty($filter_date_from)) $bindParams[':date_from'] = $filter_date_from;
-if (!empty($filter_date_to)) $bindParams[':date_to'] = $filter_date_to;
-if (!empty($filter_user)) $bindParams[':user_id'] = $filter_user;
-if (!empty($filter_activity_type)) $bindParams[':activity_type_id'] = $filter_activity_type;
-if (!empty($search)) $bindParams[':search'] = '%' . $search . '%';
-
-$countStmt->execute($bindParams);
-$total_records = $countStmt->fetchColumn();
+$countStmt = $pdo->prepare($count_query);
+$countStmt->execute($params);
+$total_records = $countStmt->fetch()['total'];
 $total_pages = ceil($total_records / $records_per_page);
 
-// Get logs for current page with pagination
-$query .= " ORDER BY created_at DESC LIMIT :offset, :limit";
+// Get logs for current page
+$query .= " ORDER BY al.created_at DESC LIMIT :offset, :limit";
 $stmt = $pdo->prepare($query);
 
-// Bind parameters
-foreach ($bindParams as $key => $value) {
+foreach ($params as $key => $value) {
     $stmt->bindValue($key, $value);
 }
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
@@ -175,7 +124,7 @@ $stmt->bindValue(':limit', $records_per_page, PDO::PARAM_INT);
 $stmt->execute();
 $logs = $stmt->fetchAll();
 
-// Get statistics including login activities
+// Get statistics
 try {
     $statsStmt = $pdo->prepare("
         SELECT 
@@ -184,16 +133,8 @@ try {
             COUNT(DISTINCT activity_type_id) as unique_activities,
             MIN(created_at) as oldest_log,
             MAX(created_at) as newest_log
-        FROM (
-            SELECT created_at, user_id, activity_type_id FROM activity_logs
-            WHERE DATE(created_at) BETWEEN :date_from AND :date_to
-            UNION ALL
-            SELECT last_login as created_at, id as user_id, 
-                   (SELECT id FROM activity_types WHERE name = 'login' LIMIT 1) as activity_type_id
-            FROM users 
-            WHERE last_login IS NOT NULL 
-            AND DATE(last_login) BETWEEN :date_from AND :date_to
-        ) as combined
+        FROM activity_logs
+        WHERE DATE(created_at) BETWEEN :date_from AND :date_to
     ");
     $statsStmt->execute([
         ':date_from' => $filter_date_from,
@@ -201,25 +142,15 @@ try {
     ]);
     $stats = $statsStmt->fetch();
     
-    // Get activity breakdown for chart including login
+    // Get activity breakdown for chart
     $breakdownStmt = $pdo->prepare("
         SELECT 
-            activity_name,
+            at.name as activity_name,
             COUNT(*) as count
-        FROM (
-            SELECT at.name as activity_name
-            FROM activity_logs al
-            JOIN activity_types at ON al.activity_type_id = at.id
-            WHERE DATE(al.created_at) BETWEEN :date_from AND :date_to
-            
-            UNION ALL
-            
-            SELECT 'login' as activity_name
-            FROM users 
-            WHERE last_login IS NOT NULL 
-            AND DATE(last_login) BETWEEN :date_from AND :date_to
-        ) as combined
-        GROUP BY activity_name
+        FROM activity_logs al
+        JOIN activity_types at ON al.activity_type_id = at.id
+        WHERE DATE(al.created_at) BETWEEN :date_from AND :date_to
+        GROUP BY al.activity_type_id, at.name
         ORDER BY count DESC
         LIMIT 5
     ");
@@ -240,23 +171,15 @@ try {
     $activity_breakdown = [];
 }
 
-// Get daily activity for trend chart including login
+// Get daily activity for trend chart
 try {
     $trendStmt = $pdo->prepare("
         SELECT 
-            log_date,
+            DATE(created_at) as log_date,
             COUNT(*) as count
-        FROM (
-            SELECT DATE(created_at) as log_date FROM activity_logs
-            WHERE DATE(created_at) BETWEEN :date_from AND :date_to
-            
-            UNION ALL
-            
-            SELECT DATE(last_login) as log_date FROM users
-            WHERE last_login IS NOT NULL 
-            AND DATE(last_login) BETWEEN :date_from AND :date_to
-        ) as combined
-        GROUP BY log_date
+        FROM activity_logs
+        WHERE DATE(created_at) BETWEEN :date_from AND :date_to
+        GROUP BY DATE(created_at)
         ORDER BY log_date ASC
     ");
     $trendStmt->execute([
@@ -334,7 +257,7 @@ try {
                                 <div class="d-flex align-items-center">
                                     <div class="flex-grow-1">
                                         <h4 class="mb-2">Activity Logs Overview</h4>
-                                        <p class="mb-0">Track all user activities, system events, and login history.</p>
+                                        <p class="mb-0">Track all user activities and system events.</p>
                                     </div>
                                     <div class="flex-shrink-0">
                                         <i class="mdi mdi-history" style="font-size: 48px; opacity: 0.5;"></i>
@@ -652,7 +575,7 @@ try {
                                                         </div>
                                                     </td>
                                                     <td>
-                                                        <?php if (!empty($log['activity_data']) && $log['activity_data'] !== 'null'): ?>
+                                                        <?php if (!empty($log['activity_data'])): ?>
                                                             <button type="button" class="btn btn-sm btn-soft-info" onclick='viewData(<?= json_encode($log['activity_data']) ?>)'>
                                                                 <i class="mdi mdi-code-json"></i> View
                                                             </button>

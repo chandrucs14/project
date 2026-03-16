@@ -10,7 +10,6 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
 // Initialize variables
 $error = '';
 $success = '';
@@ -167,6 +166,13 @@ if (isset($_SESSION['error_message'])) {
 
 <?php include('includes/head.php'); ?>
 
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+
 <body data-sidebar="dark">
 
 <!-- Loader -->
@@ -240,7 +246,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-purple mt-2"><?= number_format($stats['active_customers'] ?? 0) ?></h3>
+                                <h3 class="text-success mt-2"><?= number_format($stats['active_customers'] ?? 0) ?></h3>
                                 Active Customers
                             </div>
                         </div>
@@ -248,7 +254,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-primary mt-2"><?= number_format($stats['inactive_customers'] ?? 0) ?></h3>
+                                <h3 class="text-warning mt-2"><?= number_format($stats['inactive_customers'] ?? 0) ?></h3>
                                 Inactive Customers
                             </div>
                         </div>
@@ -425,13 +431,13 @@ if (isset($_SESSION['error_message'])) {
                                                                    title="Edit">
                                                                     <i class="mdi mdi-pencil"></i>
                                                                 </a>
-                                                                <a href="javascript:void(0);" 
+                                                                <button type="button" 
                                                                    onclick="confirmDelete(<?= $customer['id'] ?>, '<?= htmlspecialchars(addslashes($customer['name'])) ?>', '<?= htmlspecialchars(addslashes($search)) ?>', '<?= $status ?>', <?= $page ?>)"
                                                                    class="btn btn-sm btn-soft-danger"
                                                                    data-bs-toggle="tooltip" 
                                                                    title="Delete">
                                                                     <i class="mdi mdi-delete"></i>
-                                                                </a>
+                                                                </button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -545,9 +551,8 @@ if (isset($_SESSION['error_message'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 CSS and JS -->
-<link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
-<script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
     // Initialize tooltips
@@ -562,29 +567,38 @@ if (isset($_SESSION['error_message'])) {
             alert.style.transition = 'opacity 0.5s';
             alert.style.opacity = '0';
             setTimeout(function() {
-                alert.remove();
+                if (alert.parentNode) {
+                    alert.remove();
+                }
             }, 500);
         });
     }, 5000);
     
     // Search with debounce
     let searchTimeout;
-    document.querySelector('input[name="search"]')?.addEventListener('keyup', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            if (this.value.length >= 2 || this.value.length === 0) {
-                document.getElementById('filterForm').submit();
-            }
-        }, 500);
-    });
+    const searchInput = document.querySelector('input[name="search"]');
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (this.value.length >= 2 || this.value.length === 0) {
+                    document.getElementById('filterForm').submit();
+                }
+            }, 500);
+        });
+    }
     
     // Auto-submit on status change
-    document.querySelector('select[name="status"]')?.addEventListener('change', function() {
-        document.getElementById('filterForm').submit();
-    });
+    const statusSelect = document.querySelector('select[name="status"]');
+    if (statusSelect) {
+        statusSelect.addEventListener('change', function() {
+            document.getElementById('filterForm').submit();
+        });
+    }
     
-    // Confirm delete action
+    // Confirm delete action - FIXED VERSION
     function confirmDelete(id, name, search, status, page) {
+        // Use SweetAlert2
         Swal.fire({
             title: 'Delete Customer?',
             html: `Are you sure you want to delete <strong>${name}</strong>?`,
@@ -596,25 +610,27 @@ if (isset($_SESSION['error_message'])) {
             confirmButtonText: 'Yes, delete it!',
             cancelButtonText: 'Cancel',
             reverseButtons: true,
-            focusCancel: true
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // Show loading state
-                Swal.fire({
-                    title: 'Deleting...',
-                    text: 'Please wait while we delete the customer',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
+            focusCancel: true,
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                // Return a promise that resolves when redirect happens
+                return new Promise((resolve) => {
+                    // Small timeout to show loading state
+                    setTimeout(() => {
+                        // Redirect with all parameters to maintain filter state
+                        window.location.href = `manage-customers.php?delete=1&id=${id}&search=${encodeURIComponent(search)}&status=${status}&page=${page}`;
+                    }, 100);
                 });
-                
-                // Redirect with all parameters to maintain filter state
-                window.location.href = `manage-customers.php?delete=1&id=${id}&search=${encodeURIComponent(search)}&status=${status}&page=${page}`;
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((result) => {
+            // This will only execute if the user cancels or if there's an error
+            if (result.dismiss === Swal.DismissReason.cancel) {
+                console.log('Delete cancelled');
             }
         });
+        
+        return false; // Prevent default action
     }
     
     // Keyboard shortcuts
@@ -628,7 +644,10 @@ if (isset($_SESSION['error_message'])) {
         // Ctrl + F to focus search
         if (e.ctrlKey && e.key === 'f') {
             e.preventDefault();
-            document.querySelector('input[name="search"]')?.focus();
+            const searchInput = document.querySelector('input[name="search"]');
+            if (searchInput) {
+                searchInput.focus();
+            }
         }
         
         // Escape to clear search
@@ -651,6 +670,57 @@ if (isset($_SESSION['error_message'])) {
         }
     });
 </script>
+
+<style>
+/* Fix for avatar display */
+.avatar-sm {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+/* Button hover effects */
+.btn-soft-primary:hover,
+.btn-soft-success:hover,
+.btn-soft-danger:hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s;
+}
+
+/* Table row hover */
+.table tbody tr:hover {
+    background-color: rgba(0,0,0,.02);
+}
+
+/* Status badge styling */
+.badge {
+    padding: 6px 10px;
+    font-size: 11px;
+}
+
+/* Alert animations */
+.alert {
+    transition: opacity 0.5s ease;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .btn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .btn-group .btn {
+        border-radius: 4px !important;
+        margin: 0;
+    }
+}
+</style>
 
 </body>
 </html>

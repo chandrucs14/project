@@ -88,13 +88,26 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
             
             $pdo->commit();
             
-            $success_message = "Expense deleted successfully!";
+            $_SESSION['success_message'] = "Expense deleted successfully!";
         }
     } catch (Exception $e) {
         $pdo->rollBack();
-        $error_message = "Error deleting expense: " . $e->getMessage();
+        $_SESSION['error_message'] = "Error deleting expense: " . $e->getMessage();
         error_log("Expense deletion error: " . $e->getMessage());
     }
+    
+    // Redirect to refresh the page
+    header("Location: manage-expenses.php?" . http_build_query([
+        'filter_date_from' => $filter_date_from,
+        'filter_date_to' => $filter_date_to,
+        'filter_category' => $filter_category,
+        'filter_payment_method' => $filter_payment_method,
+        'filter_supplier' => $filter_supplier,
+        'search' => $search,
+        'page' => $page,
+        'per_page' => $records_per_page
+    ]));
+    exit();
 }
 
 // Function to reverse daywise amounts when expense is deleted
@@ -352,11 +365,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     }
     exit();
 }
+
+// Check for session messages
+if (isset($_SESSION['success_message'])) {
+    $success_message = $_SESSION['success_message'];
+    unset($_SESSION['success_message']);
+}
+
+if (isset($_SESSION['error_message'])) {
+    $error_message = $_SESSION['error_message'];
+    unset($_SESSION['error_message']);
+}
 ?>
 <!doctype html>
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Chart JS -->
+    <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+</head>
 
 <body data-sidebar="dark">
 
@@ -437,7 +468,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                                     <button type="button" class="btn btn-success" id="exportBtn">
                                         <i class="mdi mdi-export"></i> Export
                                     </button>
-                                    <button type="button" class="btn btn-info" id="printBtn">
+                                    <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
                                     <button type="button" class="btn btn-danger" id="bulkDeleteBtn" disabled>
@@ -540,7 +571,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Filter Expenses</h4>
-                                <form method="GET" action="manage-expenses.php" class="row">
+                                <form method="GET" action="manage-expenses.php" class="row" id="filterForm">
                                     <div class="col-md-2">
                                         <div class="mb-3">
                                             <label for="filter_date_from" class="form-label">From Date</label>
@@ -689,14 +720,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                                                 <th>Amount</th>
                                                 <th>GST</th>
                                                 <th>Total</th>
-                                                <th>Status</th>
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php if (empty($expenses)): ?>
                                             <tr>
-                                                <td colspan="12" class="text-center text-muted py-4">
+                                                <td colspan="11" class="text-center text-muted py-4">
                                                     <i class="mdi mdi-alert-circle-outline font-size-24"></i>
                                                     <p class="mt-2">No expenses found</p>
                                                 </td>
@@ -783,12 +813,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                                                         <strong>₹<?= number_format($expense['total_amount'], 2) ?></strong>
                                                     </td>
                                                     <td>
-                                                        <?php
-                                                        // You can implement expense status if needed
-                                                        ?>
-                                                        <span class="badge bg-soft-success text-success">Completed</span>
-                                                    </td>
-                                                    <td>
                                                         <div class="btn-group" role="group">
                                                             <a href="view-expense.php?id=<?= $expense['id'] ?>" class="btn btn-sm btn-soft-primary" title="View">
                                                                 <i class="mdi mdi-eye"></i>
@@ -797,7 +821,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                                                                 <i class="mdi mdi-pencil"></i>
                                                             </a>
                                                             <button type="button" class="btn btn-sm btn-soft-danger" title="Delete" 
-                                                                    onclick="confirmDelete(<?= $expense['id'] ?>, '<?= htmlspecialchars($expense['expense_number']) ?>')">
+                                                                    onclick="confirmDelete(<?= $expense['id'] ?>, '<?= htmlspecialchars(addslashes($expense['expense_number'])) ?>', '<?= $page ?>', '<?= $filter_date_from ?>', '<?= $filter_date_to ?>', '<?= $filter_category ?>', '<?= $filter_payment_method ?>', '<?= $filter_supplier ?>', '<?= addslashes($search) ?>', <?= $records_per_page ?>)">
                                                                 <i class="mdi mdi-delete"></i>
                                                             </button>
                                                         </div>
@@ -859,26 +883,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
 </div>
 <!-- END layout-wrapper -->
 
-<!-- Delete Confirmation Modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete expense <strong id="deleteExpenseNumber"></strong>?</p>
-                <p class="text-danger"><small>This action cannot be undone.</small></p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <a href="#" id="confirmDeleteBtn" class="btn btn-danger">Delete</a>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Right Sidebar -->
 <?php include('includes/rightbar.php'); ?>
 <!-- /Right-bar -->
@@ -886,6 +890,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- Chart JS -->
 <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
 
@@ -896,12 +902,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 
-    // Delete confirmation
-    function confirmDelete(id, expenseNumber) {
-        document.getElementById('deleteExpenseNumber').textContent = expenseNumber;
-        document.getElementById('confirmDeleteBtn').href = 'manage-expenses.php?action=delete&id=' + id;
-        var modal = new bootstrap.Modal(document.getElementById('deleteModal'));
-        modal.show();
+    // SweetAlert2 Delete confirmation
+    function confirmDelete(id, expenseNumber, page, dateFrom, dateTo, category, paymentMethod, supplier, search, perPage) {
+        Swal.fire({
+            title: 'Delete Expense?',
+            html: `Are you sure you want to delete expense <strong>${expenseNumber}</strong>?`,
+            text: "This action cannot be undone!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#f46a6a',
+            cancelButtonColor: '#556ee6',
+            confirmButtonText: 'Yes, delete it!',
+            cancelButtonText: 'Cancel',
+            reverseButtons: true,
+            focusCancel: true,
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                // Show loading state
+                Swal.showLoading();
+                
+                // Build the redirect URL with all filter parameters
+                let url = `manage-expenses.php?action=delete&id=${id}`;
+                if (page) url += `&page=${page}`;
+                if (dateFrom) url += `&filter_date_from=${encodeURIComponent(dateFrom)}`;
+                if (dateTo) url += `&filter_date_to=${encodeURIComponent(dateTo)}`;
+                if (category) url += `&filter_category=${encodeURIComponent(category)}`;
+                if (paymentMethod) url += `&filter_payment_method=${encodeURIComponent(paymentMethod)}`;
+                if (supplier) url += `&filter_supplier=${encodeURIComponent(supplier)}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+                if (perPage) url += `&per_page=${perPage}`;
+                
+                // Redirect to delete
+                window.location.href = url;
+                
+                // Return a promise that never resolves (since we're redirecting)
+                return new Promise(() => {});
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((result) => {
+            // This will only execute if the user cancels
+            if (result.dismiss === Swal.DismissReason.cancel) {
+                console.log('Delete cancelled');
+            }
+        });
+        
+        return false; // Prevent default action
     }
 
     // Auto-hide alerts after 5 seconds
@@ -909,12 +954,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         var alerts = document.querySelectorAll('.alert');
         alerts.forEach(function(alert) {
             var bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
         });
-    }, 5000);
+    }, 100);
 
     // Select all checkboxes
-    document.getElementById('selectAll').addEventListener('change', function() {
+    document.getElementById('selectAll')?.addEventListener('change', function() {
         var checkboxes = document.querySelectorAll('.expense-checkbox');
         checkboxes.forEach(function(checkbox) {
             checkbox.checked = this.checked;
@@ -932,17 +979,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         var checkedCount = document.querySelectorAll('.expense-checkbox:checked').length;
         var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
         
-        if (checkedCount > 0) {
-            bulkDeleteBtn.disabled = false;
-            bulkDeleteBtn.innerHTML = '<i class="mdi mdi-delete"></i> Delete Selected (' + checkedCount + ')';
-        } else {
-            bulkDeleteBtn.disabled = true;
-            bulkDeleteBtn.innerHTML = '<i class="mdi mdi-delete"></i> Delete Selected';
+        if (bulkDeleteBtn) {
+            if (checkedCount > 0) {
+                bulkDeleteBtn.disabled = false;
+                bulkDeleteBtn.innerHTML = '<i class="mdi mdi-delete"></i> Delete Selected (' + checkedCount + ')';
+            } else {
+                bulkDeleteBtn.disabled = true;
+                bulkDeleteBtn.innerHTML = '<i class="mdi mdi-delete"></i> Delete Selected';
+            }
         }
     }
 
-    // Bulk delete
-    document.getElementById('bulkDeleteBtn').addEventListener('click', function() {
+    // Bulk delete with SweetAlert2
+    document.getElementById('bulkDeleteBtn')?.addEventListener('click', function() {
         var selectedIds = [];
         document.querySelectorAll('.expense-checkbox:checked').forEach(function(checkbox) {
             selectedIds.push(checkbox.value);
@@ -950,40 +999,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         
         if (selectedIds.length === 0) return;
         
-        if (confirm('Are you sure you want to delete ' + selectedIds.length + ' selected expenses? This action cannot be undone.')) {
-            // Send AJAX request for bulk delete
-            fetch('manage-expenses.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'bulk_action=delete&selected_ids=' + JSON.stringify(selectedIds)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while processing your request');
-            });
-        }
+        Swal.fire({
+            title: 'Delete Selected Expenses?',
+            html: `Are you sure you want to delete <strong>${selectedIds.length}</strong> selected expense(s)?`,
+            text: "This action cannot be undone!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#f46a6a',
+            cancelButtonColor: '#556ee6',
+            confirmButtonText: 'Yes, delete them!',
+            cancelButtonText: 'Cancel',
+            reverseButtons: true,
+            focusCancel: true,
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                // Send AJAX request for bulk delete
+                return fetch('manage-expenses.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'bulk_action=delete&selected_ids=' + JSON.stringify(selectedIds)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Deleted!',
+                            text: data.message,
+                            timer: 2000,
+                            showConfirmButton: false
+                        }).then(() => {
+                            location.reload();
+                        });
+                    } else {
+                        throw new Error(data.message || 'Failed to delete expenses');
+                    }
+                })
+                .catch(error => {
+                    Swal.showValidationMessage(
+                        `Request failed: ${error}`
+                    );
+                });
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        });
     });
 
     // Export functionality
-    document.getElementById('exportBtn').addEventListener('click', function() {
+    document.getElementById('exportBtn')?.addEventListener('click', function() {
         var params = new URLSearchParams(window.location.search);
         params.append('export', 'csv');
         window.location.href = 'export-expenses.php?' + params.toString();
-    });
-
-    // Print functionality
-    document.getElementById('printBtn').addEventListener('click', function() {
-        window.print();
     });
 
     // Category Chart
@@ -1068,6 +1141,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         color: #000 !important;
         background: transparent !important;
     }
+}
+
+/* Button hover effects */
+.btn-soft-danger:hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s;
+}
+
+/* SweetAlert2 customization */
+.swal2-popup {
+    font-family: inherit;
+}
+
+.swal2-title {
+    font-size: 1.2rem;
+}
+
+.swal2-html-container {
+    font-size: 0.95rem;
+}
+
+.swal2-confirm {
+    background-color: #f46a6a !important;
+}
+
+.swal2-cancel {
+    background-color: #556ee6 !important;
 }
 </style>
 
