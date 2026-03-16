@@ -48,7 +48,7 @@ try {
     $itemsStmt->execute([$invoice_id]);
     $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get company settings from gst_settings table (modified to use gst_settings instead of invoice_settings)
+    // Get company settings from gst_settings table
     $settingsStmt = $pdo->query("SELECT setting_key, setting_value FROM gst_settings");
     $settings = [];
     while ($row = $settingsStmt->fetch(PDO::FETCH_ASSOC)) {
@@ -58,7 +58,6 @@ try {
     // Also get invoice settings for backward compatibility
     $invoiceSettingsStmt = $pdo->query("SELECT setting_key, setting_value FROM invoice_settings");
     while ($row = $invoiceSettingsStmt->fetch(PDO::FETCH_ASSOC)) {
-        // Only add if not already set in gst_settings
         if (!isset($settings[$row['setting_key']])) {
             $settings[$row['setting_key']] = $row['setting_value'];
         }
@@ -73,7 +72,7 @@ try {
 // Check for success message
 $show_success = isset($_GET['success']) && $_GET['success'] == 1;
 
-// Helper function to convert number to words (fixed deprecation error)
+// Helper function to convert number to words (fixed for Indian currency)
 function numberToWords($number) {
     $hyphen      = '-';
     $conjunction = ' and ';
@@ -111,24 +110,21 @@ function numberToWords($number) {
         90                  => 'Ninety',
         100                 => 'Hundred',
         1000                => 'Thousand',
-        1000000             => 'Million',
-        1000000000          => 'Billion',
-        1000000000000       => 'Trillion',
-        1000000000000000    => 'Quadrillion',
-        1000000000000000000 => 'Quintillion'
+        100000              => 'Lakh',
+        10000000            => 'Crore'
     );
     
     if (!is_numeric($number)) {
         return false;
     }
     
-    // Handle float numbers by converting to string to preserve decimal places
-    $numberStr = (string)$number;
+    // Handle float numbers for currency
+    $numberStr = (string)number_format($number, 2, '.', '');
     
     if (strpos($numberStr, '.') !== false) {
         list($whole, $fraction) = explode('.', $numberStr);
         $whole = (int)$whole;
-        $fraction = (int)substr($fraction, 0, 2); // Only take first 2 decimal places for currency
+        $fraction = (int)$fraction;
     } else {
         $whole = (int)$number;
         $fraction = 0;
@@ -140,40 +136,61 @@ function numberToWords($number) {
     
     $string = '';
     
-    // Convert whole number part
-    switch (true) {
-        case $whole < 21:
-            $string = $dictionary[$whole];
-            break;
-        case $whole < 100:
-            $tens   = ((int)($whole / 10)) * 10;
+    // Handle Indian numbering system (Crores, Lakhs, Thousands)
+    if ($whole >= 10000000) { // Crores
+        $crores = floor($whole / 10000000);
+        $remainder = $whole % 10000000;
+        $string .= numberToWords($crores) . ' Crore';
+        if ($remainder > 0) {
+            $string .= ' ';
+        }
+        $whole = $remainder;
+    }
+    
+    if ($whole >= 100000) { // Lakhs
+        $lakhs = floor($whole / 100000);
+        $remainder = $whole % 100000;
+        $string .= numberToWords($lakhs) . ' Lakh';
+        if ($remainder > 0) {
+            $string .= ' ';
+        }
+        $whole = $remainder;
+    }
+    
+    if ($whole >= 1000) { // Thousands
+        $thousands = floor($whole / 1000);
+        $remainder = $whole % 1000;
+        $string .= numberToWords($thousands) . ' Thousand';
+        if ($remainder > 0) {
+            $string .= ' ';
+        }
+        $whole = $remainder;
+    }
+    
+    if ($whole >= 100) { // Hundreds
+        $hundreds = floor($whole / 100);
+        $remainder = $whole % 100;
+        $string .= numberToWords($hundreds) . ' Hundred';
+        if ($remainder > 0) {
+            $string .= ' and ';
+        }
+        $whole = $remainder;
+    }
+    
+    if ($whole > 0) {
+        if ($whole < 21) {
+            $string .= $dictionary[$whole];
+        } elseif ($whole < 100) {
+            $tens   = floor($whole / 10) * 10;
             $units  = $whole % 10;
-            $string = $dictionary[$tens];
+            $string .= $dictionary[$tens];
             if ($units) {
                 $string .= $hyphen . $dictionary[$units];
             }
-            break;
-        case $whole < 1000:
-            $hundreds  = (int)($whole / 100);
-            $remainder = $whole % 100;
-            $string = $dictionary[$hundreds] . ' ' . $dictionary[100];
-            if ($remainder) {
-                $string .= $conjunction . numberToWords($remainder);
-            }
-            break;
-        default:
-            $baseUnit = pow(1000, floor(log($whole, 1000)));
-            $numBaseUnits = (int)($whole / $baseUnit);
-            $remainder = $whole % $baseUnit;
-            $string = numberToWords($numBaseUnits) . ' ' . $dictionary[$baseUnit];
-            if ($remainder) {
-                $string .= $remainder < 100 ? $conjunction : $separator;
-                $string .= numberToWords($remainder);
-            }
-            break;
+        }
     }
     
-    // Add fraction part for paise
+    // Add paise for fractional part
     if ($fraction > 0) {
         $string .= ' and ';
         if ($fraction < 10) {
@@ -181,7 +198,7 @@ function numberToWords($number) {
         } elseif ($fraction < 20) {
             $string .= $dictionary[$fraction] . ' Paise';
         } else {
-            $tens = ((int)($fraction / 10)) * 10;
+            $tens = floor($fraction / 10) * 10;
             $units = $fraction % 10;
             $paiseStr = $dictionary[$tens];
             if ($units) {
@@ -317,6 +334,10 @@ function getCompanyLogo($settings) {
             font-size: 14px;
             color: #495057;
             font-style: italic;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            margin-top: 10px;
         }
         .gst-breakup {
             font-size: 12px;
@@ -327,6 +348,14 @@ function getCompanyLogo($settings) {
             display: flex;
             align-items: center;
             justify-content: flex-start;
+        }
+        .tax-breakup-table {
+            width: 100%;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+        .tax-breakup-table td {
+            padding: 3px 0;
         }
         @media print {
             .print-btn, .success-alert, .back-btn {
@@ -406,11 +435,11 @@ function getCompanyLogo($settings) {
                         <?php if (!empty($settings['company_email'])): ?>
                         <p class="mb-0"><i class="bi bi-envelope me-1"></i> <?= htmlspecialchars($settings['company_email']) ?></p>
                         <?php endif; ?>
-                        <?php if (!empty($settings['company_gst']) && $settings['show_gst'] != '0'): ?>
+                        <?php if (!empty($settings['company_gst']) && (!isset($settings['show_gst']) || $settings['show_gst'] != '0')): ?>
                         <p class="mb-0"><i class="bi bi-building me-1"></i> GST: <?= htmlspecialchars($settings['company_gst']) ?></p>
                         <?php endif; ?>
                         <?php if (!empty($settings['company_pan'])): ?>
-                        <p class="mb-0">PAN: <?= htmlspecialchars($settings['company_pan']) ?></p>
+                        <p class="mb-0"><i class="bi bi-card-text me-1"></i> PAN: <?= htmlspecialchars($settings['company_pan']) ?></p>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -433,7 +462,7 @@ function getCompanyLogo($settings) {
         <div class="customer-details">
             <div class="row">
                 <div class="col-12">
-                    <h5><i class="bi bi-person-bounding-box me-2"></i>Bill To:</h5>
+                    <h5><i class="bi bi-person-bounding-box me-2"></i> Bill To:</h5>
                     <div class="row">
                         <div class="col-md-6">
                             <p class="mb-1"><strong><?= htmlspecialchars($invoice['customer_name']) ?></strong></p>
@@ -468,9 +497,12 @@ function getCompanyLogo($settings) {
                         <th width="10%">Unit Price</th>
                         <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
                         <th width="8%">GST %</th>
-                        <th width="12%">GST Amount</th>
-                        <?php endif; ?>
+                        <th width="6%">CGST</th>
+                        <th width="6%">SGST</th>
+                        <th width="10%">Total</th>
+                        <?php else: ?>
                         <th width="12%">Total</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
@@ -479,21 +511,24 @@ function getCompanyLogo($settings) {
                     $gst_total = 0;
                     $cgst_total = 0;
                     $sgst_total = 0;
-                    $igst_total = 0;
                     
                     foreach ($items as $index => $item): 
-                        $item_subtotal = floatval($item['quantity']) * floatval($item['unit_price']);
+                        $quantity = floatval($item['quantity']);
+                        $unit_price = floatval($item['unit_price']);
+                        $item_subtotal = $quantity * $unit_price;
                         $item_gst = floatval($item['gst_amount']);
                         $item_total = $item_subtotal + $item_gst;
                         
                         $gst_rate = floatval($item['gst_rate'] ?? 0);
-                        $cgst = $item_gst / 2;
-                        $sgst = $item_gst / 2;
+                        $cgst = $gst_rate / 2;
+                        $sgst = $gst_rate / 2;
+                        $cgst_amount = $item_gst / 2;
+                        $sgst_amount = $item_gst / 2;
                         
                         $subtotal += $item_subtotal;
                         $gst_total += $item_gst;
-                        $cgst_total += $cgst;
-                        $sgst_total += $sgst;
+                        $cgst_total += $cgst_amount;
+                        $sgst_total += $sgst_amount;
                     ?>
                     <tr>
                         <td class="text-center"><?= $index + 1 ?></td>
@@ -501,78 +536,61 @@ function getCompanyLogo($settings) {
                         <?php if (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0'): ?>
                         <td class="text-center"><?= htmlspecialchars($item['hsn_code'] ?? 'N/A') ?></td>
                         <?php endif; ?>
-                        <td class="text-center"><?= number_format(floatval($item['quantity']), 2) ?></td>
+                        <td class="text-center"><?= number_format($quantity, 2) ?></td>
                         <td class="text-center"><?= htmlspecialchars($item['unit'] ?? 'Nos') ?></td>
-                        <td class="text-end">₹<?= number_format(floatval($item['unit_price']), 2) ?></td>
+                        <td class="text-end">₹<?= number_format($unit_price, 2) ?></td>
                         <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
                         <td class="text-center"><?= number_format($gst_rate, 2) ?>%</td>
-                        <td class="text-end">₹<?= number_format($item_gst, 2) ?></td>
-                        <?php endif; ?>
+                        <td class="text-end">₹<?= number_format($cgst_amount, 2) ?></td>
+                        <td class="text-end">₹<?= number_format($sgst_amount, 2) ?></td>
                         <td class="text-end">₹<?= number_format($item_total, 2) ?></td>
+                        <?php else: ?>
+                        <td class="text-end">₹<?= number_format($item_total, 2) ?></td>
+                        <?php endif; ?>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
                 <tfoot>
+                    <?php 
+                    $colspan_left = 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0);
+                    $colspan_middle = (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1);
+                    ?>
                     <tr>
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Subtotal:</strong></td>
-                        <td class="text-end" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>">₹<?= number_format($subtotal, 2) ?></td>
+                        <td colspan="<?= $colspan_left ?>" class="text-end"><strong>Subtotal:</strong></td>
+                        <td class="text-end" colspan="<?= $colspan_middle ?>"><strong>₹<?= number_format($subtotal, 2) ?></strong></td>
                     </tr>
                     <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
                     <tr>
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>GST Total:</strong></td>
-                        <td class="text-end" colspan="3">₹<?= number_format($gst_total, 2) ?></td>
-                    </tr>
-                    <?php if (!isset($settings['show_cgst_sgst']) || $settings['show_cgst_sgst'] != '0'): ?>
-                    <tr>
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><small>CGST (50%)</small></td>
-                        <td class="text-end" colspan="3"><small>₹<?= number_format($cgst_total, 2) ?></small></td>
+                        <td colspan="<?= $colspan_left ?>" class="text-end"><strong>CGST @9%:</strong></td>
+                        <td class="text-end" colspan="<?= $colspan_middle ?>">₹<?= number_format($cgst_total, 2) ?></td>
                     </tr>
                     <tr>
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><small>SGST (50%)</small></td>
-                        <td class="text-end" colspan="3"><small>₹<?= number_format($sgst_total, 2) ?></small></td>
+                        <td colspan="<?= $colspan_left ?>" class="text-end"><strong>SGST @9%:</strong></td>
+                        <td class="text-end" colspan="<?= $colspan_middle ?>">₹<?= number_format($sgst_total, 2) ?></td>
                     </tr>
-                    <?php endif; ?>
                     <?php endif; ?>
                     <?php if (floatval($invoice['discount_amount'] ?? 0) > 0): ?>
                     <tr>
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Discount:</strong></td>
-                        <td class="text-end text-danger" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>">-₹<?= number_format(floatval($invoice['discount_amount']), 2) ?></td>
+                        <td colspan="<?= $colspan_left ?>" class="text-end"><strong>Discount:</strong></td>
+                        <td class="text-end text-danger" colspan="<?= $colspan_middle ?>">-₹<?= number_format(floatval($invoice['discount_amount']), 2) ?></td>
                     </tr>
                     <?php endif; ?>
                     <tr class="total-row">
-                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Total Amount:</strong></td>
-                        <td class="text-end grand-total" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>"><strong>₹<?= number_format(floatval($invoice['total_amount']), 2) ?></strong></td>
-                    </tr>
-                    <tr>
-                        <td colspan="<?= 9 ?>" class="amount-in-words">
-                            <strong>Amount in Words:</strong> <?= ucwords(numberToWords(floatval($invoice['total_amount']))) ?>
-                        </td>
+                        <td colspan="<?= $colspan_left ?>" class="text-end"><strong>Total Amount:</strong></td>
+                        <td class="text-end grand-total" colspan="<?= $colspan_middle ?>"><strong>₹<?= number_format(floatval($invoice['total_amount']), 2) ?></strong></td>
                     </tr>
                 </tfoot>
             </table>
         </div>
 
-        <!-- Notes and Terms -->
-        <?php if (!empty($invoice['notes']) || !empty($invoice['terms']) || !empty($settings['invoice_footer_text'])): ?>
-        <div class="row mt-4">
-            <?php if (!empty($invoice['notes'])): ?>
-            <div class="col-6">
-                <h6><i class="bi bi-pencil-square me-2"></i>Notes:</h6>
-                <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['notes'])) ?></p>
-            </div>
-            <?php endif; ?>
-            <?php if (!empty($invoice['terms']) || !empty($settings['invoice_terms_conditions'])): ?>
-            <div class="col-6">
-                <h6><i class="bi bi-file-text me-2"></i>Terms & Conditions:</h6>
-                <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['terms'] ?: $settings['invoice_terms_conditions'] ?? '')) ?></p>
-            </div>
-            <?php endif; ?>
+        <!-- Amount in Words -->
+        <div class="amount-in-words">
+            <strong>Amount in Words:</strong> <?= ucwords(numberToWords(floatval($invoice['total_amount']))) ?>
         </div>
-        <?php endif; ?>
 
         <!-- Bank Details (if available) -->
         <?php if (!empty($settings['bank_name']) || !empty($settings['bank_account_no']) || !empty($settings['bank_ifsc']) || !empty($settings['upi_id'])): ?>
-        <div class="row mt-4">
+        <div class="row mt-3">
             <div class="col-12">
                 <h6><i class="bi bi-bank me-2"></i>Bank Details:</h6>
                 <div class="row">
@@ -606,6 +624,16 @@ function getCompanyLogo($settings) {
         </div>
         <?php endif; ?>
 
+        <!-- Notes -->
+        <?php if (!empty($invoice['notes'])): ?>
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6><i class="bi bi-pencil-square me-2"></i>Notes:</h6>
+                <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['notes'])) ?></p>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Footer -->
         <div class="footer-note">
             <?php if (!empty($settings['invoice_footer_text'])): ?>
@@ -617,19 +645,19 @@ function getCompanyLogo($settings) {
         </div>
 
         <!-- Signature Section -->
-        <div class="row mt-5">
+        <div class="row mt-4">
             <div class="col-6">
                 <p>_________________________</p>
-                <p><i class="bi bi-person me-1"></i>Customer Signature</p>
+                <p><i class="bi bi-person me-1"></i> Customer Signature</p>
             </div>
             <div class="col-6 text-end">
                 <p>_________________________</p>
-                <p><i class="bi bi-pen me-1"></i>Authorized Signatory</p>
+                <p><i class="bi bi-pen me-1"></i> Authorized Signatory</p>
             </div>
         </div>
 
         <!-- Created By -->
-        <div class="text-center text-muted small mt-3 pt-3 border-top">
+        <div class="text-center text-muted small mt-3 pt-2 border-top">
             <i class="bi bi-clock-history me-1"></i>
             Created by: <?= htmlspecialchars($invoice['created_by_name'] ?? 'System') ?> on <?= date('d M Y, h:i A', strtotime($invoice['created_at'])) ?>
         </div>
