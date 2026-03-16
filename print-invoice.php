@@ -5,7 +5,11 @@ session_start();
 // Include database configuration
 require_once 'config/database.php';
 
-//
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
 
 // Get invoice ID from URL
 $invoice_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
@@ -44,11 +48,20 @@ try {
     $itemsStmt->execute([$invoice_id]);
     $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get company settings
-    $settingsStmt = $pdo->query("SELECT setting_key, setting_value FROM invoice_settings");
+    // Get company settings from gst_settings table (modified to use gst_settings instead of invoice_settings)
+    $settingsStmt = $pdo->query("SELECT setting_key, setting_value FROM gst_settings");
     $settings = [];
     while ($row = $settingsStmt->fetch(PDO::FETCH_ASSOC)) {
         $settings[$row['setting_key']] = $row['setting_value'];
+    }
+    
+    // Also get invoice settings for backward compatibility
+    $invoiceSettingsStmt = $pdo->query("SELECT setting_key, setting_value FROM invoice_settings");
+    while ($row = $invoiceSettingsStmt->fetch(PDO::FETCH_ASSOC)) {
+        // Only add if not already set in gst_settings
+        if (!isset($settings[$row['setting_key']])) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
     }
 
 } catch (Exception $e) {
@@ -182,6 +195,14 @@ function numberToWords($number) {
     
     return $string;
 }
+
+// Function to get logo path
+function getCompanyLogo($settings) {
+    if (!empty($settings['company_logo']) && file_exists($settings['company_logo'])) {
+        return $settings['company_logo'];
+    }
+    return 'assets/images/default-logo.png'; // Fallback default logo
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -208,6 +229,12 @@ function numberToWords($number) {
             border-bottom: 2px solid #556ee6;
             padding-bottom: 20px;
             margin-bottom: 20px;
+        }
+        .company-logo {
+            max-height: 80px;
+            max-width: 200px;
+            object-fit: contain;
+            margin-bottom: 10px;
         }
         .company-details {
             color: #333;
@@ -291,6 +318,16 @@ function numberToWords($number) {
             color: #495057;
             font-style: italic;
         }
+        .gst-breakup {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+        .company-logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+        }
         @media print {
             .print-btn, .success-alert, .back-btn {
                 display: none !important;
@@ -340,16 +377,41 @@ function numberToWords($number) {
     </div>
 
     <div class="invoice-container">
-        <!-- Invoice Header -->
+        <!-- Invoice Header with Logo -->
         <div class="invoice-header">
             <div class="row">
                 <div class="col-6">
+                    <?php 
+                    $logo_path = getCompanyLogo($settings);
+                    if (!empty($logo_path) && file_exists($logo_path)): 
+                    ?>
+                    <div class="company-logo-container mb-2">
+                        <img src="<?= htmlspecialchars($logo_path) ?>" alt="Company Logo" class="company-logo">
+                    </div>
+                    <?php endif; ?>
                     <div class="company-details">
                         <div class="company-name"><?= htmlspecialchars($settings['company_name'] ?? 'Your Company Name') ?></div>
-                        <p class="mb-0"><?= nl2br(htmlspecialchars($settings['company_address'] ?? 'Your Company Address')) ?></p>
-                        <p class="mb-0">GST: <?= htmlspecialchars($settings['company_gst'] ?? '22AAAAA0000A1Z5') ?></p>
-                        <p class="mb-0">Phone: <?= htmlspecialchars($settings['company_phone'] ?? '') ?></p>
-                        <p class="mb-0">Email: <?= htmlspecialchars($settings['company_email'] ?? '') ?></p>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($settings['company_address'] ?? '')) ?></p>
+                        <?php if (!empty($settings['company_city']) || !empty($settings['company_state']) || !empty($settings['company_pincode'])): ?>
+                        <p class="mb-0">
+                            <?= htmlspecialchars($settings['company_city'] ?? '') ?> 
+                            <?= !empty($settings['company_city']) && (!empty($settings['company_state']) || !empty($settings['company_pincode'])) ? ', ' : '' ?>
+                            <?= htmlspecialchars($settings['company_state'] ?? '') ?> 
+                            <?= !empty($settings['company_pincode']) ? ' - ' . htmlspecialchars($settings['company_pincode']) : '' ?>
+                        </p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['company_phone'])): ?>
+                        <p class="mb-0"><i class="bi bi-telephone me-1"></i> <?= htmlspecialchars($settings['company_phone']) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['company_email'])): ?>
+                        <p class="mb-0"><i class="bi bi-envelope me-1"></i> <?= htmlspecialchars($settings['company_email']) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['company_gst']) && $settings['show_gst'] != '0'): ?>
+                        <p class="mb-0"><i class="bi bi-building me-1"></i> GST: <?= htmlspecialchars($settings['company_gst']) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['company_pan'])): ?>
+                        <p class="mb-0">PAN: <?= htmlspecialchars($settings['company_pan']) ?></p>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="col-6 text-end">
@@ -377,12 +439,14 @@ function numberToWords($number) {
                             <p class="mb-1"><strong><?= htmlspecialchars($invoice['customer_name']) ?></strong></p>
                             <p class="mb-1"><?= htmlspecialchars($invoice['customer_code']) ?></p>
                             <p class="mb-1"><?= htmlspecialchars($invoice['address'] ?? '') ?></p>
-                            <p class="mb-1"><?= htmlspecialchars($invoice['city'] ?? '') ?>, <?= htmlspecialchars($invoice['state'] ?? '') ?> - <?= htmlspecialchars($invoice['pincode'] ?? '') ?></p>
+                            <p class="mb-1"><?= htmlspecialchars($invoice['city'] ?? '') ?><?= !empty($invoice['city']) && (!empty($invoice['state']) || !empty($invoice['pincode'])) ? ', ' : '' ?><?= htmlspecialchars($invoice['state'] ?? '') ?> <?= !empty($invoice['pincode']) ? ' - ' . htmlspecialchars($invoice['pincode']) : '' ?></p>
                         </div>
                         <div class="col-md-6">
                             <p class="mb-1"><i class="bi bi-telephone me-1"></i> <?= htmlspecialchars($invoice['phone'] ?? 'N/A') ?></p>
                             <p class="mb-1"><i class="bi bi-envelope me-1"></i> <?= htmlspecialchars($invoice['email'] ?? 'N/A') ?></p>
-                            <p class="mb-1"><i class="bi bi-building me-1"></i> GST: <?= htmlspecialchars($invoice['gst_number'] ?? 'N/A') ?></p>
+                            <?php if (!empty($invoice['gst_number']) && (!isset($settings['show_gst']) || $settings['show_gst'] != '0')): ?>
+                            <p class="mb-1"><i class="bi bi-building me-1"></i> GST: <?= htmlspecialchars($invoice['gst_number']) ?></p>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -396,12 +460,16 @@ function numberToWords($number) {
                     <tr>
                         <th width="5%">#</th>
                         <th width="25%">Description</th>
+                        <?php if (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0'): ?>
                         <th width="10%">HSN/SAC</th>
+                        <?php endif; ?>
                         <th width="8%">Qty</th>
-                        <th width="10%">Unit</th>
+                        <th width="8%">Unit</th>
                         <th width="10%">Unit Price</th>
+                        <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
                         <th width="8%">GST %</th>
                         <th width="12%">GST Amount</th>
+                        <?php endif; ?>
                         <th width="12%">Total</th>
                     </tr>
                 </thead>
@@ -409,48 +477,74 @@ function numberToWords($number) {
                     <?php 
                     $subtotal = 0;
                     $gst_total = 0;
+                    $cgst_total = 0;
+                    $sgst_total = 0;
+                    $igst_total = 0;
+                    
                     foreach ($items as $index => $item): 
                         $item_subtotal = floatval($item['quantity']) * floatval($item['unit_price']);
                         $item_gst = floatval($item['gst_amount']);
                         $item_total = $item_subtotal + $item_gst;
                         
+                        $gst_rate = floatval($item['gst_rate'] ?? 0);
+                        $cgst = $item_gst / 2;
+                        $sgst = $item_gst / 2;
+                        
                         $subtotal += $item_subtotal;
                         $gst_total += $item_gst;
+                        $cgst_total += $cgst;
+                        $sgst_total += $sgst;
                     ?>
                     <tr>
                         <td class="text-center"><?= $index + 1 ?></td>
                         <td><?= htmlspecialchars($item['product_name']) ?></td>
+                        <?php if (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0'): ?>
                         <td class="text-center"><?= htmlspecialchars($item['hsn_code'] ?? 'N/A') ?></td>
+                        <?php endif; ?>
                         <td class="text-center"><?= number_format(floatval($item['quantity']), 2) ?></td>
                         <td class="text-center"><?= htmlspecialchars($item['unit'] ?? 'Nos') ?></td>
                         <td class="text-end">₹<?= number_format(floatval($item['unit_price']), 2) ?></td>
-                        <td class="text-center"><?= number_format(floatval($item['gst_rate'] ?? 0), 2) ?>%</td>
+                        <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
+                        <td class="text-center"><?= number_format($gst_rate, 2) ?>%</td>
                         <td class="text-end">₹<?= number_format($item_gst, 2) ?></td>
+                        <?php endif; ?>
                         <td class="text-end">₹<?= number_format($item_total, 2) ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="8" class="text-end"><strong>Subtotal:</strong></td>
-                        <td class="text-end">₹<?= number_format($subtotal, 2) ?></td>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Subtotal:</strong></td>
+                        <td class="text-end" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>">₹<?= number_format($subtotal, 2) ?></td>
+                    </tr>
+                    <?php if (!isset($settings['show_gst']) || $settings['show_gst'] != '0'): ?>
+                    <tr>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>GST Total:</strong></td>
+                        <td class="text-end" colspan="3">₹<?= number_format($gst_total, 2) ?></td>
+                    </tr>
+                    <?php if (!isset($settings['show_cgst_sgst']) || $settings['show_cgst_sgst'] != '0'): ?>
+                    <tr>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><small>CGST (50%)</small></td>
+                        <td class="text-end" colspan="3"><small>₹<?= number_format($cgst_total, 2) ?></small></td>
                     </tr>
                     <tr>
-                        <td colspan="8" class="text-end"><strong>GST Total:</strong></td>
-                        <td class="text-end">₹<?= number_format($gst_total, 2) ?></td>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><small>SGST (50%)</small></td>
+                        <td class="text-end" colspan="3"><small>₹<?= number_format($sgst_total, 2) ?></small></td>
                     </tr>
+                    <?php endif; ?>
+                    <?php endif; ?>
                     <?php if (floatval($invoice['discount_amount'] ?? 0) > 0): ?>
                     <tr>
-                        <td colspan="8" class="text-end"><strong>Discount:</strong></td>
-                        <td class="text-end text-danger">-₹<?= number_format(floatval($invoice['discount_amount']), 2) ?></td>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Discount:</strong></td>
+                        <td class="text-end text-danger" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>">-₹<?= number_format(floatval($invoice['discount_amount']), 2) ?></td>
                     </tr>
                     <?php endif; ?>
                     <tr class="total-row">
-                        <td colspan="8" class="text-end"><strong>Total Amount:</strong></td>
-                        <td class="text-end grand-total"><strong>₹<?= number_format(floatval($invoice['total_amount']), 2) ?></strong></td>
+                        <td colspan="<?= 5 + (!isset($settings['show_hsn']) || $settings['show_hsn'] != '0' ? 1 : 0) ?>" class="text-end"><strong>Total Amount:</strong></td>
+                        <td class="text-end grand-total" colspan="<?= (!isset($settings['show_gst']) || $settings['show_gst'] != '0' ? 3 : 1) ?>"><strong>₹<?= number_format(floatval($invoice['total_amount']), 2) ?></strong></td>
                     </tr>
                     <tr>
-                        <td colspan="9" class="amount-in-words">
+                        <td colspan="<?= 9 ?>" class="amount-in-words">
                             <strong>Amount in Words:</strong> <?= ucwords(numberToWords(floatval($invoice['total_amount']))) ?>
                         </td>
                     </tr>
@@ -459,7 +553,7 @@ function numberToWords($number) {
         </div>
 
         <!-- Notes and Terms -->
-        <?php if (!empty($invoice['notes']) || !empty($invoice['terms'])): ?>
+        <?php if (!empty($invoice['notes']) || !empty($invoice['terms']) || !empty($settings['invoice_footer_text'])): ?>
         <div class="row mt-4">
             <?php if (!empty($invoice['notes'])): ?>
             <div class="col-6">
@@ -467,33 +561,46 @@ function numberToWords($number) {
                 <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['notes'])) ?></p>
             </div>
             <?php endif; ?>
-            <?php if (!empty($invoice['terms'])): ?>
+            <?php if (!empty($invoice['terms']) || !empty($settings['invoice_terms_conditions'])): ?>
             <div class="col-6">
                 <h6><i class="bi bi-file-text me-2"></i>Terms & Conditions:</h6>
-                <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['terms'])) ?></p>
+                <p class="text-muted"><?= nl2br(htmlspecialchars($invoice['terms'] ?: $settings['invoice_terms_conditions'] ?? '')) ?></p>
             </div>
             <?php endif; ?>
         </div>
         <?php endif; ?>
 
         <!-- Bank Details (if available) -->
-        <?php if (!empty($settings['bank_name'])): ?>
+        <?php if (!empty($settings['bank_name']) || !empty($settings['bank_account_no']) || !empty($settings['bank_ifsc']) || !empty($settings['upi_id'])): ?>
         <div class="row mt-4">
             <div class="col-12">
                 <h6><i class="bi bi-bank me-2"></i>Bank Details:</h6>
                 <div class="row">
+                    <?php if (!empty($settings['bank_name'])): ?>
                     <div class="col-md-3">
-                        <p class="mb-1"><strong>Bank Name:</strong> <?= htmlspecialchars($settings['bank_name'] ?? '') ?></p>
+                        <p class="mb-1"><strong>Bank:</strong> <?= htmlspecialchars($settings['bank_name']) ?></p>
                     </div>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['bank_account_no'])): ?>
                     <div class="col-md-3">
-                        <p class="mb-1"><strong>Account No:</strong> <?= htmlspecialchars($settings['account_no'] ?? '') ?></p>
+                        <p class="mb-1"><strong>A/c No:</strong> <?= htmlspecialchars($settings['bank_account_no']) ?></p>
                     </div>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['bank_ifsc'])): ?>
                     <div class="col-md-3">
-                        <p class="mb-1"><strong>IFSC Code:</strong> <?= htmlspecialchars($settings['ifsc_code'] ?? '') ?></p>
+                        <p class="mb-1"><strong>IFSC:</strong> <?= htmlspecialchars($settings['bank_ifsc']) ?></p>
                     </div>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['bank_branch'])): ?>
                     <div class="col-md-3">
-                        <p class="mb-1"><strong>Branch:</strong> <?= htmlspecialchars($settings['branch'] ?? '') ?></p>
+                        <p class="mb-1"><strong>Branch:</strong> <?= htmlspecialchars($settings['bank_branch']) ?></p>
                     </div>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['upi_id'])): ?>
+                    <div class="col-md-3">
+                        <p class="mb-1"><strong>UPI ID:</strong> <?= htmlspecialchars($settings['upi_id']) ?></p>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -501,7 +608,11 @@ function numberToWords($number) {
 
         <!-- Footer -->
         <div class="footer-note">
+            <?php if (!empty($settings['invoice_footer_text'])): ?>
+            <p class="mb-1"><?= nl2br(htmlspecialchars($settings['invoice_footer_text'])) ?></p>
+            <?php else: ?>
             <p class="mb-1">This is a computer generated invoice - no signature required.</p>
+            <?php endif; ?>
             <p class="mb-0">Thank you for your business!</p>
         </div>
 
