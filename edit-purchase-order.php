@@ -283,19 +283,6 @@ function getStatusBadge($status) {
     return $badges[strtolower($status)] ?? 'secondary';
 }
 
-// Get status icon
-function getStatusIcon($status) {
-    $icons = [
-        'draft' => 'mdi-pencil',
-        'sent' => 'mdi-send',
-        'confirmed' => 'mdi-check-circle',
-        'received' => 'mdi-truck-check',
-        'cancelled' => 'mdi-close-circle',
-        'partial' => 'mdi-package-variant'
-    ];
-    return $icons[strtolower($status)] ?? 'mdi-information';
-}
-
 // Format currency
 function formatCurrency($amount) {
     return '₹' . number_format(floatval($amount), 2);
@@ -480,12 +467,8 @@ function formatCurrency($amount) {
                                     </div>
                                     
                                     <div class="action-buttons">
-                                        <span class="badge bg-<?= getStatusBadge($purchase_order['status']) ?> p-3">
-                                            <i class="mdi <?= getStatusIcon($purchase_order['status']) ?> me-1"></i>
-                                            <?= ucfirst($purchase_order['status']) ?>
-                                        </span>
                                         <a href="view-purchase-order.php?id=<?= $po_id ?>" class="btn btn-secondary">
-                                            <i class="mdi mdi-arrow-left"></i> Back
+                                            <i class="mdi mdi-arrow-left"></i> Back to View
                                         </a>
                                     </div>
                                 </div>
