@@ -10,18 +10,16 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
-
 // Initialize variables
 $error = '';
 $success = '';
 $supplier_id = isset($_GET['supplier_id']) ? (int)$_GET['supplier_id'] : 0;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $status = isset($_GET['status']) ? trim($_GET['status']) : 'all';
-$from_date = isset($_GET['from_date']) ? trim($_GET['from_date']) : date('Y-m-01'); // First day of current month
+$from_date = isset($_GET['from_date']) ? trim($_GET['from_date']) : date('Y-m-01');
 $to_date = isset($_GET['to_date']) ? trim($_GET['to_date']) : date('Y-m-d');
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$limit = 10; // Records per page
+$limit = 10;
 $offset = ($page - 1) * $limit;
 
 // Handle payment to supplier
@@ -96,114 +94,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['make_payment'])) {
             ]);
             
             $pdo->commit();
-            $success = "Payment recorded successfully. New outstanding balance: ₹" . number_format($new_outstanding, 2);
+            $_SESSION['success_message'] = "Payment recorded successfully. New outstanding balance: ₹" . number_format($new_outstanding, 2);
+            header("Location: supplier-outstanding.php?" . http_build_query([
+                'supplier_id' => $supplier_id,
+                'from_date' => $from_date,
+                'to_date' => $to_date,
+                'status' => $status,
+                'page' => $page
+            ]));
+            exit();
             
         } catch (Exception $e) {
             $pdo->rollBack();
             $error = "Failed to record payment: " . $e->getMessage();
             error_log("Supplier payment error: " . $e->getMessage());
-        }
-    }
-}
-
-// Handle purchase order creation (adds to outstanding)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_purchase'])) {
-    $purchase_supplier_id = (int)$_POST['supplier_id'];
-    $po_number = trim($_POST['po_number'] ?? '');
-    $amount = floatval($_POST['amount']);
-    $purchase_date = $_POST['purchase_date'];
-    $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
-    $notes = trim($_POST['notes'] ?? '');
-    
-    if ($amount <= 0) {
-        $error = "Please enter a valid amount.";
-    } elseif (empty($po_number)) {
-        $error = "PO number is required.";
-    } else {
-        try {
-            $pdo->beginTransaction();
-            
-            // Get supplier current outstanding
-            $suppStmt = $pdo->prepare("SELECT outstanding_balance, name, supplier_code FROM suppliers WHERE id = ?");
-            $suppStmt->execute([$purchase_supplier_id]);
-            $supplier = $suppStmt->fetch();
-            
-            if (!$supplier) {
-                throw new Exception("Supplier not found.");
-            }
-            
-            $current_outstanding = $supplier['outstanding_balance'];
-            $new_outstanding = $current_outstanding + $amount;
-            
-            // Insert into purchase_orders first
-            $poStmt = $pdo->prepare("
-                INSERT INTO purchase_orders (
-                    po_number, supplier_id, order_date, expected_delivery, 
-                    total_amount, status, notes, created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, NOW())
-            ");
-            
-            $poStmt->execute([
-                $po_number,
-                $purchase_supplier_id,
-                $purchase_date,
-                $due_date,
-                $amount,
-                $notes,
-                $_SESSION['user_id']
-            ]);
-            
-            $po_id = $pdo->lastInsertId();
-            
-            // Insert into supplier_outstanding
-            $stmt = $pdo->prepare("
-                INSERT INTO supplier_outstanding (
-                    supplier_id, transaction_type, reference_id, transaction_date, 
-                    amount, balance_after, due_date, status, created_by, created_at
-                ) VALUES (?, 'purchase', ?, ?, ?, ?, ?, 'pending', ?, NOW())
-            ");
-            
-            $stmt->execute([
-                $purchase_supplier_id,
-                $po_id,
-                $purchase_date,
-                $amount,
-                $new_outstanding,
-                $due_date,
-                $_SESSION['user_id']
-            ]);
-            
-            // Update supplier outstanding balance
-            $updateStmt = $pdo->prepare("UPDATE suppliers SET outstanding_balance = ? WHERE id = ?");
-            $updateStmt->execute([$new_outstanding, $purchase_supplier_id]);
-            
-            // Log activity
-            $activity_stmt = $pdo->prepare("
-                INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                VALUES (?, 3, ?, ?, NOW())
-            ");
-            
-            $activity_data = json_encode([
-                'supplier_id' => $purchase_supplier_id,
-                'supplier_name' => $supplier['name'],
-                'po_number' => $po_number,
-                'amount' => $amount,
-                'new_balance' => $new_outstanding
-            ]);
-            
-            $activity_stmt->execute([
-                $_SESSION['user_id'],
-                "Purchase Order #$po_number created for supplier: " . $supplier['name'],
-                $activity_data
-            ]);
-            
-            $pdo->commit();
-            $success = "Purchase Order created successfully. New outstanding balance: ₹" . number_format($new_outstanding, 2);
-            
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            $error = "Failed to create purchase order: " . $e->getMessage();
-            error_log("Purchase order error: " . $e->getMessage());
         }
     }
 }
@@ -341,6 +245,15 @@ if (isset($_SESSION['error_message'])) {
 
 <?php include('includes/head.php'); ?>
 
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+
 <body data-sidebar="dark">
 
 <!-- Loader -->
@@ -375,7 +288,7 @@ if (isset($_SESSION['error_message'])) {
                             <h4 class="mb-0 font-size-18">Supplier Outstanding</h4>
                             <div class="page-title-right">
                                 <ol class="breadcrumb m-0">
-                                    <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
+                                    <li class="breadcrumb-item"><a href="index.php">Dashboard</a></li>
                                     <li class="breadcrumb-item"><a href="manage-suppliers.php">Suppliers</a></li>
                                     <li class="breadcrumb-item active">Outstanding</li>
                                 </ol>
@@ -405,34 +318,78 @@ if (isset($_SESSION['error_message'])) {
                 <!-- Summary Cards -->
                 <div class="row">
                     <div class="col-md-6 col-xl-3">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-info mt-2"><?= number_format($summary['total_suppliers_with_outstanding'] ?? 0) ?></h3>
-                                Suppliers with Outstanding
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-primary text-primary rounded-circle">
+                                                <i class="bi bi-truck font-size-22"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Suppliers with Outstanding</p>
+                                        <h4><?= number_format($summary['total_suppliers_with_outstanding'] ?? 0) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6 col-xl-3">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-purple mt-2">₹<?= number_format($summary['current_total_outstanding'] ?? 0, 2) ?></h3>
-                                Total Outstanding
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-danger text-danger rounded-circle">
+                                                <i class="bi bi-cash-stack font-size-22"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Total Outstanding</p>
+                                        <h4>₹<?= number_format($summary['current_total_outstanding'] ?? 0, 2) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6 col-xl-3">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-primary mt-2">₹<?= number_format($summary['total_purchases'] ?? 0, 2) ?></h3>
-                                Total Purchases
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-success text-success rounded-circle">
+                                                <i class="bi bi-cart-check font-size-22"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Total Purchases</p>
+                                        <h4>₹<?= number_format($summary['total_purchases'] ?? 0, 2) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6 col-xl-3">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-danger mt-2">₹<?= number_format($summary['total_payments'] ?? 0, 2) ?></h3>
-                                Total Payments
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <div class="avatar-sm">
+                                            <span class="avatar-title bg-soft-info text-info rounded-circle">
+                                                <i class="bi bi-cash font-size-22"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted mb-2">Total Payments</p>
+                                        <h4>₹<?= number_format($summary['total_payments'] ?? 0, 2) ?></h4>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -445,72 +402,62 @@ if (isset($_SESSION['error_message'])) {
                         <div class="card">
                             <div class="card-body">
                                 <div class="row">
-                                    <div class="col-md-9">
+                                    <div class="col-md-8">
                                         <form method="GET" action="" id="filterForm">
-                                            <div class="row">
+                                            <div class="row g-3">
                                                 <div class="col-md-3">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">Supplier</label>
-                                                        <select name="supplier_id" class="form-control">
-                                                            <option value="0">All Suppliers</option>
-                                                            <?php foreach ($allSuppliers as $supp): ?>
-                                                                <option value="<?= $supp['id'] ?>" <?= $supplier_id == $supp['id'] ? 'selected' : '' ?>>
-                                                                    <?= htmlspecialchars($supp['name']) ?> (<?= htmlspecialchars($supp['supplier_code']) ?>)
-                                                                    <?php if ($supp['outstanding_balance'] > 0): ?>
-                                                                        - ₹<?= number_format($supp['outstanding_balance'], 2) ?>
-                                                                    <?php endif; ?>
-                                                                </option>
-                                                            <?php endforeach; ?>
-                                                        </select>
-                                                    </div>
+                                                    <label class="form-label">Supplier</label>
+                                                    <select name="supplier_id" class="form-control select2">
+                                                        <option value="0">All Suppliers</option>
+                                                        <?php foreach ($allSuppliers as $supp): ?>
+                                                            <option value="<?= $supp['id'] ?>" <?= $supplier_id == $supp['id'] ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($supp['name']) ?> (<?= htmlspecialchars($supp['supplier_code']) ?>)
+                                                                <?php if ($supp['outstanding_balance'] > 0): ?>
+                                                                    - ₹<?= number_format($supp['outstanding_balance'], 2) ?>
+                                                                <?php endif; ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
                                                 </div>
                                                 <div class="col-md-2">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">From Date</label>
-                                                        <input type="date" class="form-control" name="from_date" value="<?= $from_date ?>">
-                                                    </div>
+                                                    <label class="form-label">From Date</label>
+                                                    <input type="date" class="form-control" name="from_date" value="<?= $from_date ?>">
                                                 </div>
                                                 <div class="col-md-2">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">To Date</label>
-                                                        <input type="date" class="form-control" name="to_date" value="<?= $to_date ?>">
-                                                    </div>
+                                                    <label class="form-label">To Date</label>
+                                                    <input type="date" class="form-control" name="to_date" value="<?= $to_date ?>">
                                                 </div>
                                                 <div class="col-md-2">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">Status</label>
-                                                        <select name="status" class="form-control">
-                                                            <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>All</option>
-                                                            <option value="pending" <?= $status === 'pending' ? 'selected' : '' ?>>Pending</option>
-                                                            <option value="partial" <?= $status === 'partial' ? 'selected' : '' ?>>Partial</option>
-                                                            <option value="settled" <?= $status === 'settled' ? 'selected' : '' ?>>Settled</option>
-                                                        </select>
-                                                    </div>
+                                                    <label class="form-label">Status</label>
+                                                    <select name="status" class="form-control">
+                                                        <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>All</option>
+                                                        <option value="pending" <?= $status === 'pending' ? 'selected' : '' ?>>Pending</option>
+                                                        <option value="partial" <?= $status === 'partial' ? 'selected' : '' ?>>Partial</option>
+                                                        <option value="settled" <?= $status === 'settled' ? 'selected' : '' ?>>Settled</option>
+                                                    </select>
                                                 </div>
                                                 <div class="col-md-3">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">&nbsp;</label>
-                                                        <div class="d-flex gap-2">
-                                                            <button type="submit" class="btn btn-primary w-50">
-                                                                <i class="mdi mdi-filter me-1"></i> Filter
-                                                            </button>
-                                                            <a href="supplier-outstanding.php" class="btn btn-secondary w-50">
-                                                                <i class="mdi mdi-refresh me-1"></i> Reset
-                                                            </a>
-                                                        </div>
+                                                    <label class="form-label">&nbsp;</label>
+                                                    <div class="d-flex gap-2">
+                                                        <button type="submit" class="btn btn-primary">
+                                                            <i class="bi bi-filter"></i> Apply
+                                                        </button>
+                                                        <a href="supplier-outstanding.php" class="btn btn-secondary">
+                                                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                                                        </a>
                                                     </div>
                                                 </div>
                                             </div>
                                         </form>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-4">
                                         <div class="text-md-end mt-3 mt-md-0">
                                             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addPaymentModal">
-                                                <i class="mdi mdi-cash-plus me-1"></i> Make Payment
+                                                <i class="bi bi-cash"></i> Make Payment
                                             </button>
-                                            <button type="button" class="btn btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#addPurchaseModal">
-                                                <i class="mdi mdi-cart-plus me-1"></i> Add Purchase
-                                            </button>
+                                            <a href="create-purchase.php" class="btn btn-primary ms-2">
+                                                <i class="bi bi-cart-plus"></i> New Purchase
+                                            </a>
                                         </div>
                                     </div>
                                 </div>
@@ -537,8 +484,8 @@ if (isset($_SESSION['error_message'])) {
                                     </div>
                                     <div class="col-md-3">
                                         <h6 class="text-primary">Contact</h6>
-                                        <p class="mb-1"><i class="mdi mdi-phone me-1"></i> <?= htmlspecialchars($selectedSupplier['phone']) ?></p>
-                                        <p class="mb-0"><i class="mdi mdi-email me-1"></i> <?= htmlspecialchars($selectedSupplier['email'] ?? 'N/A') ?></p>
+                                        <p class="mb-1"><i class="bi bi-telephone me-1"></i> <?= htmlspecialchars($selectedSupplier['phone']) ?></p>
+                                        <p class="mb-0"><i class="bi bi-envelope me-1"></i> <?= htmlspecialchars($selectedSupplier['email'] ?? 'N/A') ?></p>
                                     </div>
                                     <div class="col-md-3">
                                         <h6 class="text-primary">Outstanding Balance</h6>
@@ -562,26 +509,37 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body">
-                                <h4 class="card-title mb-4">Transaction History</h4>
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <h4 class="card-title">Transaction History</h4>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-end">
+                                            <span class="text-muted">
+                                                Showing <?= $offset + 1 ?> to <?= min($offset + $limit, $totalRecords) ?> of <?= $totalRecords ?> entries
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                                 
                                 <?php if (empty($outstanding_records)): ?>
                                     <div class="text-center py-5">
-                                        <i class="mdi mdi-cash-off" style="font-size: 48px; color: #ccc;"></i>
+                                        <i class="bi bi-cash-stack" style="font-size: 48px; color: #ccc;"></i>
                                         <h5 class="mt-3">No transactions found</h5>
                                         <p class="text-muted">Try adjusting your search or filter criteria</p>
                                         <div>
                                             <button type="button" class="btn btn-success mt-2" data-bs-toggle="modal" data-bs-target="#addPaymentModal">
-                                                <i class="mdi mdi-cash-plus me-1"></i> Make Payment
+                                                <i class="bi bi-cash"></i> Make Payment
                                             </button>
-                                            <button type="button" class="btn btn-primary mt-2 ms-2" data-bs-toggle="modal" data-bs-target="#addPurchaseModal">
-                                                <i class="mdi mdi-cart-plus me-1"></i> Add Purchase
-                                            </button>
+                                            <a href="create-purchase.php<?= $supplier_id > 0 ? '?supplier_id=' . $supplier_id : '' ?>" class="btn btn-primary mt-2 ms-2">
+                                                <i class="bi bi-cart-plus"></i> New Purchase
+                                            </a>
                                         </div>
                                     </div>
                                 <?php else: ?>
                                     <div class="table-responsive">
-                                        <table class="table table-centered table-nowrap mb-0">
-                                            <thead class="thead-light">
+                                        <table class="table table-hover table-centered mb-0">
+                                            <thead class="table-light">
                                                 <tr>
                                                     <th>Date</th>
                                                     <th>Supplier</th>
@@ -610,24 +568,24 @@ if (isset($_SESSION['error_message'])) {
                                                             switch($record['transaction_type']) {
                                                                 case 'purchase':
                                                                     $typeClass = 'primary';
-                                                                    $typeIcon = 'cart';
+                                                                    $typeIcon = 'bi-cart';
                                                                     break;
                                                                 case 'payment':
                                                                     $typeClass = 'success';
-                                                                    $typeIcon = 'cash';
+                                                                    $typeIcon = 'bi-cash';
                                                                     break;
                                                                 case 'credit_note':
                                                                     $typeClass = 'info';
-                                                                    $typeIcon = 'credit-card';
+                                                                    $typeIcon = 'bi-credit-card';
                                                                     break;
                                                                 case 'debit_note':
                                                                     $typeClass = 'warning';
-                                                                    $typeIcon = 'card-bulleted';
+                                                                    $typeIcon = 'bi-card-text';
                                                                     break;
                                                             }
                                                             ?>
                                                             <span class="badge bg-soft-<?= $typeClass ?> text-<?= $typeClass ?>">
-                                                                <i class="mdi mdi-<?= $typeIcon ?> me-1"></i>
+                                                                <i class="bi <?= $typeIcon ?> me-1"></i>
                                                                 <?= ucfirst(str_replace('_', ' ', $record['transaction_type'])) ?>
                                                             </span>
                                                         </td>
@@ -640,7 +598,7 @@ if (isset($_SESSION['error_message'])) {
                                                                 <?= htmlspecialchars($record['reference_number']) ?>
                                                             <?php endif; ?>
                                                         </td>
-                                                        <td class="<?= ($record['transaction_type'] === 'payment' || $record['transaction_type'] === 'credit_note') ? 'text-success' : 'text-danger' ?> font-weight-bold">
+                                                        <td class="<?= ($record['transaction_type'] === 'payment' || $record['transaction_type'] === 'credit_note') ? 'text-success' : 'text-danger' ?> fw-bold">
                                                             <?= ($record['transaction_type'] === 'payment' || $record['transaction_type'] === 'credit_note') ? '-' : '+' ?>
                                                             ₹<?= number_format($record['amount'], 2) ?>
                                                         </td>
@@ -686,37 +644,36 @@ if (isset($_SESSION['error_message'])) {
                                             </tbody>
                                         </table>
                                     </div>
-                                    <!-- end table-responsive -->
 
                                     <!-- Pagination -->
                                     <?php if ($totalPages > 1): ?>
                                         <div class="row mt-4">
                                             <div class="col-sm-6">
                                                 <div class="text-muted">
-                                                    Showing <?= $offset + 1 ?> to <?= min($offset + $limit, $totalRecords) ?> of <?= $totalRecords ?> entries
+                                                    Page <?= $page ?> of <?= $totalPages ?>
                                                 </div>
                                             </div>
                                             <div class="col-sm-6">
                                                 <ul class="pagination justify-content-end">
                                                     <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page - 1 ?>&supplier_id=<?= $supplier_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
-                                                            <i class="mdi mdi-chevron-left"></i>
+                                                        <a class="page-link" href="<?= buildPaginationUrl($page - 1) ?>">
+                                                            <i class="bi bi-chevron-left"></i>
                                                         </a>
                                                     </li>
                                                     
-                                                    <?php 
+                                                    <?php
                                                     $startPage = max(1, $page - 2);
                                                     $endPage = min($totalPages, $page + 2);
                                                     for ($i = $startPage; $i <= $endPage; $i++): 
                                                     ?>
                                                         <li class="page-item <?= $i === $page ? 'active' : '' ?>">
-                                                            <a class="page-link" href="?page=<?= $i ?>&supplier_id=<?= $supplier_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>"><?= $i ?></a>
+                                                            <a class="page-link" href="<?= buildPaginationUrl($i) ?>"><?= $i ?></a>
                                                         </li>
                                                     <?php endfor; ?>
                                                     
                                                     <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page + 1 ?>&supplier_id=<?= $supplier_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
-                                                            <i class="mdi mdi-chevron-right"></i>
+                                                        <a class="page-link" href="<?= buildPaginationUrl($page + 1) ?>">
+                                                            <i class="bi bi-chevron-right"></i>
                                                         </a>
                                                     </li>
                                                 </ul>
@@ -733,14 +690,14 @@ if (isset($_SESSION['error_message'])) {
                 <!-- Top Suppliers Widget -->
                 <?php if (!empty($topSuppliers)): ?>
                 <div class="row">
-                    <div class="col-xl-12">
+                    <div class="col-12">
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Top Suppliers by Outstanding</h4>
 
                                 <div class="table-responsive">
-                                    <table class="table table-centered table-nowrap mb-0">
-                                        <thead class="thead-light">
+                                    <table class="table table-hover table-centered mb-0">
+                                        <thead class="table-light">
                                             <tr>
                                                 <th>Supplier</th>
                                                 <th>Code</th>
@@ -753,14 +710,14 @@ if (isset($_SESSION['error_message'])) {
                                         <tbody>
                                             <?php foreach ($topSuppliers as $top): ?>
                                             <tr>
-                                                <td><?= htmlspecialchars($top['name']) ?></td>
+                                                <td><strong><?= htmlspecialchars($top['name']) ?></strong></td>
                                                 <td><?= htmlspecialchars($top['supplier_code']) ?></td>
                                                 <td><?= htmlspecialchars($top['company_name'] ?? 'N/A') ?></td>
                                                 <td><?= htmlspecialchars($top['phone']) ?></td>
-                                                <td class="text-danger font-weight-bold">₹<?= number_format($top['outstanding_balance'], 2) ?></td>
+                                                <td class="text-danger fw-bold">₹<?= number_format($top['outstanding_balance'], 2) ?></td>
                                                 <td>
                                                     <a href="supplier-outstanding.php?supplier_id=<?= $top['id'] ?>" class="btn btn-sm btn-soft-primary">
-                                                        <i class="mdi mdi-eye"></i> View Details
+                                                        <i class="bi bi-eye"></i> View Details
                                                     </a>
                                                 </td>
                                             </tr>
@@ -797,8 +754,7 @@ if (isset($_SESSION['error_message'])) {
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title text-white" id="addPaymentModalLabel">
-                    <i class="mdi mdi-cash-plus me-2"></i>
-                    Make Payment to Supplier
+                    <i class="bi bi-cash"></i> Make Payment to Supplier
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -806,7 +762,7 @@ if (isset($_SESSION['error_message'])) {
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Select Supplier <span class="text-danger">*</span></label>
-                        <select name="supplier_id" class="form-control" required>
+                        <select name="supplier_id" class="form-control select2-modal" required>
                             <option value="">Choose supplier...</option>
                             <?php foreach ($allSuppliers as $supp): ?>
                                 <option value="<?= $supp['id'] ?>" <?= ($supplier_id == $supp['id']) ? 'selected' : '' ?>>
@@ -825,7 +781,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="mb-3">
                         <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
                         <div class="input-group">
-                            <span class="input-group-text"><i class="mdi mdi-currency-inr"></i></span>
+                            <span class="input-group-text"><i class="bi bi-currency-rupee"></i></span>
                             <input type="number" name="amount" class="form-control" placeholder="Enter amount" min="0.01" step="0.01" required>
                         </div>
                     </div>
@@ -849,78 +805,12 @@ if (isset($_SESSION['error_message'])) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        <i class="mdi mdi-close me-1"></i> Cancel
+                        <i class="bi bi-x"></i> Cancel
                     </button>
                     <button type="submit" name="make_payment" class="btn btn-success" id="paymentSubmitBtn">
-                        <i class="mdi mdi-check me-1"></i>
+                        <i class="bi bi-check"></i>
                         <span id="paymentBtnText">Record Payment</span>
                         <span id="paymentLoading" style="display:none;">
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                            Processing...
-                        </span>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Add Purchase Modal -->
-<div class="modal fade" id="addPurchaseModal" tabindex="-1" aria-labelledby="addPurchaseModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title text-white" id="addPurchaseModalLabel">
-                    <i class="mdi mdi-cart-plus me-2"></i>
-                    Add Purchase Order
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form method="POST" action="" id="purchaseForm">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Select Supplier <span class="text-danger">*</span></label>
-                        <select name="supplier_id" class="form-control" required>
-                            <option value="">Choose supplier...</option>
-                            <?php foreach ($allSuppliers as $supp): ?>
-                                <option value="<?= $supp['id'] ?>" <?= ($supplier_id == $supp['id']) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($supp['name']) ?> (<?= htmlspecialchars($supp['supplier_code']) ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">PO Number <span class="text-danger">*</span></label>
-                        <input type="text" name="po_number" class="form-control" placeholder="PO-2024-001" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Purchase Date <span class="text-danger">*</span></label>
-                        <input type="date" name="purchase_date" class="form-control" value="<?= date('Y-m-d') ?>" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Due Date</label>
-                        <input type="date" name="due_date" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="mdi mdi-currency-inr"></i></span>
-                            <input type="number" name="amount" class="form-control" placeholder="Enter amount" min="0.01" step="0.01" required>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea name="notes" class="form-control" rows="2" placeholder="Additional notes..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        <i class="mdi mdi-close me-1"></i> Cancel
-                    </button>
-                    <button type="submit" name="add_purchase" class="btn btn-primary" id="purchaseSubmitBtn">
-                        <i class="mdi mdi-check me-1"></i>
-                        <span id="purchaseBtnText">Create Purchase Order</span>
-                        <span id="purchaseLoading" style="display:none;">
                             <span class="spinner-border spinner-border-sm me-1"></span>
                             Processing...
                         </span>
@@ -934,26 +824,31 @@ if (isset($_SESSION['error_message'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 CSS and JS -->
-<link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
-<script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- Select2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
+    $(document).ready(function() {
+        // Initialize Select2
+        $('.select2').select2({
+            width: '100%',
+            placeholder: 'Select option'
+        });
+        
+        $('.select2-modal').select2({
+            width: '100%',
+            placeholder: 'Choose supplier...',
+            dropdownParent: $('#addPaymentModal')
+        });
+    });
+
     // Form submission loading state
     document.getElementById('paymentForm')?.addEventListener('submit', function(e) {
         const btn = document.getElementById('paymentSubmitBtn');
         const btnText = document.getElementById('paymentBtnText');
         const loading = document.getElementById('paymentLoading');
-        
-        btn.disabled = true;
-        btnText.style.display = 'none';
-        loading.style.display = 'inline-block';
-    });
-    
-    document.getElementById('purchaseForm')?.addEventListener('submit', function(e) {
-        const btn = document.getElementById('purchaseSubmitBtn');
-        const btnText = document.getElementById('purchaseBtnText');
-        const loading = document.getElementById('purchaseLoading');
         
         btn.disabled = true;
         btnText.style.display = 'none';
@@ -966,9 +861,7 @@ if (isset($_SESSION['error_message'])) {
             alert.style.transition = 'opacity 0.5s';
             alert.style.opacity = '0';
             setTimeout(function() {
-                if (alert.parentNode) {
-                    alert.remove();
-                }
+                if (alert.parentNode) alert.remove();
             }, 500);
         });
     }, 5000);
@@ -977,15 +870,6 @@ if (isset($_SESSION['error_message'])) {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-    
-    // Auto-submit on filter changes
-    document.querySelector('select[name="supplier_id"]')?.addEventListener('change', function() {
-        document.getElementById('filterForm').submit();
-    });
-    
-    document.querySelector('select[name="status"]')?.addEventListener('change', function() {
-        document.getElementById('filterForm').submit();
     });
     
     // Date validation
@@ -1010,15 +894,6 @@ if (isset($_SESSION['error_message'])) {
         }
     });
     
-    // Show supplier outstanding when selected in payment modal
-    document.querySelector('select[name="supplier_id"]')?.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
-        if (this.value) {
-            // You could add an AJAX call here to get the latest outstanding
-            console.log('Selected supplier:', selectedOption.text);
-        }
-    });
-    
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
         // Alt + P to open payment modal
@@ -1027,10 +902,10 @@ if (isset($_SESSION['error_message'])) {
             $('#addPaymentModal').modal('show');
         }
         
-        // Alt + R to open purchase modal
-        if (e.altKey && e.key === 'r') {
+        // Alt + N to go to new purchase
+        if (e.altKey && e.key === 'n') {
             e.preventDefault();
-            $('#addPurchaseModal').modal('show');
+            window.location.href = 'create-purchase.php<?= $supplier_id > 0 ? '?supplier_id=' . $supplier_id : '' ?>';
         }
         
         // Ctrl + F to focus supplier filter
@@ -1040,7 +915,7 @@ if (isset($_SESSION['error_message'])) {
         }
     });
     
-    // Export functionality
+    // Export function
     function exportOutstanding() {
         Swal.fire({
             title: 'Export Data?',
@@ -1063,6 +938,128 @@ if (isset($_SESSION['error_message'])) {
         });
     }
 </script>
+
+<?php
+// Helper function to build pagination URL
+function buildPaginationUrl($page) {
+    $params = $_GET;
+    $params['page'] = $page;
+    return 'supplier-outstanding.php?' . http_build_query($params);
+}
+?>
+
+<style>
+.avatar-sm {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+/* Button hover effects */
+.btn-soft-primary:hover,
+.btn-soft-success:hover,
+.btn-soft-info:hover,
+.btn-soft-danger:hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s;
+}
+
+/* Table row hover */
+.table-hover tbody tr:hover {
+    background-color: rgba(85, 110, 230, 0.02);
+}
+
+/* Badge styling */
+.badge {
+    padding: 6px 10px;
+    font-size: 11px;
+}
+
+/* Alert animations */
+.alert {
+    transition: opacity 0.5s ease;
+}
+
+/* SweetAlert2 customization */
+.swal2-popup {
+    font-family: inherit;
+}
+
+.swal2-title {
+    font-size: 1.2rem;
+}
+
+.swal2-html-container {
+    font-size: 0.95rem;
+}
+
+.swal2-confirm {
+    background-color: #556ee6 !important;
+}
+
+.swal2-cancel {
+    background-color: #f46a6a !important;
+}
+
+/* Select2 customization */
+.select2-container--default .select2-selection--single {
+    height: 38px;
+    border: 1px solid #ced4da;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 36px;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 36px;
+}
+
+/* Pagination styling */
+.pagination .page-link {
+    color: #556ee6;
+    border: none;
+    margin: 0 3px;
+    border-radius: 5px;
+}
+
+.pagination .page-item.active .page-link {
+    background-color: #556ee6;
+    color: white;
+}
+
+/* Card styling */
+.card.bg-soft-primary {
+    background-color: rgba(85, 110, 230, 0.1) !important;
+}
+
+/* Modal select2 */
+.select2-container--default .select2-selection--single .select2-selection__placeholder {
+    color: #6c757d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .btn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .btn-group .btn {
+        border-radius: 4px !important;
+        margin: 0;
+    }
+    
+    .table td {
+        min-width: 120px;
+    }
+}
+</style>
 
 </body>
 </html>

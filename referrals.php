@@ -1,311 +1,387 @@
 <?php
+ob_start();
 date_default_timezone_set('Asia/Kolkata');
 session_start();
 
-// Include database configuration
 require_once 'config/database.php';
 
-// Check if $pdo is set and connection is successful
 if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-// Initialize variables
+function h($value): string
+{
+    return htmlspecialchars((string)($value ?? ''), ENT_QUOTES, 'UTF-8');
+}
+
+function validDate(?string $date): bool
+{
+    if (!$date) return false;
+    $d = DateTime::createFromFormat('Y-m-d', $date);
+    return $d && $d->format('Y-m-d') === $date;
+}
+
+function getValidSessionUserId(PDO $pdo): ?int
+{
+    $sessionUserId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+    if ($sessionUserId <= 0) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([$sessionUserId]);
+    $exists = $stmt->fetchColumn();
+
+    return $exists ? $sessionUserId : null;
+}
+
+function redirectWithFilters(array $extra = []): void
+{
+    $params = [
+        'search'    => $_GET['search'] ?? '',
+        'status'    => $_GET['status'] ?? 'all',
+        'from_date' => $_GET['from_date'] ?? date('Y-m-01'),
+        'to_date'   => $_GET['to_date'] ?? date('Y-m-d'),
+        'page'      => $_GET['page'] ?? 1,
+    ];
+
+    $params = array_merge($params, $extra);
+
+    header('Location: referrals.php?' . http_build_query($params));
+    exit;
+}
+
+$userId = getValidSessionUserId($pdo);
+if ($userId === null) {
+    header('Location: login.php');
+    exit;
+}
+
 $error = '';
 $success = '';
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $status = isset($_GET['status']) ? trim($_GET['status']) : 'all';
-$from_date = isset($_GET['from_date']) ? trim($_GET['from_date']) : date('Y-m-01');
-$to_date = isset($_GET['to_date']) ? trim($_GET['to_date']) : date('Y-m-d');
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$from_date = isset($_GET['from_date']) && validDate($_GET['from_date']) ? $_GET['from_date'] : date('Y-m-01');
+$to_date = isset($_GET['to_date']) && validDate($_GET['to_date']) ? $_GET['to_date'] : date('Y-m-d');
+$page = isset($_GET['page']) && (int)$_GET['page'] > 0 ? (int)$_GET['page'] : 1;
 $limit = 10;
 $offset = ($page - 1) * $limit;
 
-// Handle add referral
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_referral'])) {
+/* =========================
+   ADD REFERRAL
+========================= */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_action'] ?? '') === 'add_referral') {
     $referrer_name = trim($_POST['referrer_name'] ?? '');
     $referrer_phone = trim($_POST['referrer_phone'] ?? '');
     $referrer_email = trim($_POST['referrer_email'] ?? '');
     $referred_customer_id = !empty($_POST['referred_customer_id']) ? (int)$_POST['referred_customer_id'] : null;
-    $referral_date = $_POST['referral_date'] ?? date('Y-m-d');
-    $commission_amount = !empty($_POST['commission_amount']) ? floatval($_POST['commission_amount']) : 0.00;
+    $referral_date = isset($_POST['referral_date']) && validDate($_POST['referral_date']) ? $_POST['referral_date'] : date('Y-m-d');
+    $commission_amount = isset($_POST['commission_amount']) && $_POST['commission_amount'] !== '' ? (float)$_POST['commission_amount'] : 0.00;
     $notes = trim($_POST['notes'] ?? '');
-    
-    // Generate unique referral code
+
     $referral_code = 'REF' . strtoupper(substr(uniqid(), -8));
-    
-    // Validation
-    if (empty($referrer_name)) {
+
+    if ($referrer_name === '') {
         $error = "Referrer name is required.";
-    } elseif (empty($referrer_phone)) {
+    } elseif ($referrer_phone === '') {
         $error = "Referrer phone number is required.";
+    } elseif (!preg_match('/^[0-9]{10}$/', $referrer_phone)) {
+        $error = "Referrer phone number must be 10 digits.";
+    } elseif ($referrer_email !== '' && !filter_var($referrer_email, FILTER_VALIDATE_EMAIL)) {
+        $error = "Please enter a valid email address.";
     } else {
         try {
             $pdo->beginTransaction();
-            
-            // Check if referral code already exists (should be unique)
-            $checkStmt = $pdo->prepare("SELECT id FROM referrals WHERE referral_code = ?");
+
+            if ($referred_customer_id !== null) {
+                $checkCustomer = $pdo->prepare("SELECT id FROM customers WHERE id = ? LIMIT 1");
+                $checkCustomer->execute([$referred_customer_id]);
+                if (!$checkCustomer->fetchColumn()) {
+                    throw new Exception("Selected customer not found.");
+                }
+            }
+
+            $checkStmt = $pdo->prepare("SELECT id FROM referrals WHERE referral_code = ? LIMIT 1");
             $checkStmt->execute([$referral_code]);
             if ($checkStmt->fetch()) {
-                // Generate a new code if duplicate
                 $referral_code = 'REF' . strtoupper(substr(uniqid(), -8)) . rand(10, 99);
             }
-            
-            // Insert referral
+
             $stmt = $pdo->prepare("
                 INSERT INTO referrals (
-                    referral_code, 
-                    referrer_name, 
-                    referrer_phone, 
+                    referral_code,
+                    referrer_name,
+                    referrer_phone,
                     referrer_email,
-                    referred_customer_id, 
-                    referral_date, 
-                    status, 
+                    referred_customer_id,
+                    referral_date,
+                    status,
                     commission_amount,
-                    commission_paid, 
-                    notes, 
-                    created_by, 
+                    commission_paid,
+                    notes,
+                    created_by,
                     created_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, NOW()
                 )
             ");
-            
-            $result = $stmt->execute([
+
+            $stmt->execute([
                 $referral_code,
                 $referrer_name,
                 $referrer_phone,
-                $referrer_email ?: null,
+                $referrer_email !== '' ? $referrer_email : null,
                 $referred_customer_id,
                 $referral_date,
                 $commission_amount,
-                $notes ?: null,
-                $_SESSION['user_id']
+                $notes !== '' ? $notes : null,
+                $userId
             ]);
-            
-            if ($result) {
-                $referral_id = $pdo->lastInsertId();
-                
-                // Log activity
+
+            $referral_id = (int)$pdo->lastInsertId();
+
+            try {
                 $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 3, ?, ?, NOW())
+                    INSERT INTO activity_logs (
+                        user_id, activity_type_id, description, activity_data, created_at, created_by
+                    ) VALUES (?, 3, ?, ?, NOW(), ?)
                 ");
-                
+
                 $activity_data = json_encode([
                     'referral_id' => $referral_id,
                     'referral_code' => $referral_code,
                     'referrer_name' => $referrer_name,
                     'commission' => $commission_amount
-                ]);
-                
+                ], JSON_UNESCAPED_UNICODE);
+
                 $activity_stmt->execute([
-                    $_SESSION['user_id'],
+                    $userId,
                     "New referral created: " . $referrer_name,
-                    $activity_data
+                    $activity_data,
+                    $userId
                 ]);
-                
-                $pdo->commit();
-                
-                $_SESSION['success_message'] = "Referral created successfully. Referral Code: " . $referral_code;
-            } else {
-                $pdo->rollBack();
-                $_SESSION['error_message'] = "Failed to create referral. Please try again.";
+            } catch (Throwable $e) {
+                error_log("Referral activity log insert failed: " . $e->getMessage());
             }
-            
+
+            $pdo->commit();
+
+            $_SESSION['success_message'] = "Referral created successfully. Referral Code: " . $referral_code;
             header("Location: referrals.php");
-            exit();
-            
-        } catch (Exception $e) {
-            $pdo->rollBack();
+            exit;
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             $_SESSION['error_message'] = "Failed to create referral: " . $e->getMessage();
             error_log("Referral creation error: " . $e->getMessage());
             header("Location: referrals.php");
-            exit();
+            exit;
         }
     }
 }
 
-// Handle status update
-if (isset($_GET['action']) && isset($_GET['id'])) {
-    $action = $_GET['action'];
+/* =========================
+   STATUS UPDATE
+========================= */
+if (isset($_GET['action'], $_GET['id'])) {
+    $action = trim($_GET['action']);
     $referral_id = (int)$_GET['id'];
-    
-    try {
-        $pdo->beginTransaction();
-        
-        $allowed_actions = ['pending', 'converted', 'expired'];
-        if (in_array($action, $allowed_actions)) {
+    $allowed_actions = ['pending', 'converted', 'expired'];
+
+    if (in_array($action, $allowed_actions, true) && $referral_id > 0) {
+        try {
+            $pdo->beginTransaction();
+
+            $getStmt = $pdo->prepare("SELECT id, referrer_name, referral_code, status FROM referrals WHERE id = ? LIMIT 1");
+            $getStmt->execute([$referral_id]);
+            $referral = $getStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$referral) {
+                throw new Exception("Referral not found.");
+            }
+
             $stmt = $pdo->prepare("UPDATE referrals SET status = ?, updated_at = NOW(), updated_by = ? WHERE id = ?");
-            $result = $stmt->execute([$action, $_SESSION['user_id'], $referral_id]);
-            
-            if ($result) {
-                // Get referral details for logging
-                $getStmt = $pdo->prepare("SELECT referrer_name, referral_code FROM referrals WHERE id = ?");
-                $getStmt->execute([$referral_id]);
-                $referral = $getStmt->fetch();
-                
-                // Log activity
+            $stmt->execute([$action, $userId, $referral_id]);
+
+            try {
                 $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 4, ?, ?, NOW())
+                    INSERT INTO activity_logs (
+                        user_id, activity_type_id, description, activity_data, created_at, created_by
+                    ) VALUES (?, 4, ?, ?, NOW(), ?)
                 ");
-                
+
                 $activity_data = json_encode([
                     'referral_id' => $referral_id,
                     'referral_code' => $referral['referral_code'],
+                    'old_status' => $referral['status'],
                     'new_status' => $action
-                ]);
-                
+                ], JSON_UNESCAPED_UNICODE);
+
                 $activity_stmt->execute([
-                    $_SESSION['user_id'],
-                    "Referral status updated to " . $action . " for " . $referral['referrer_name'],
-                    $activity_data
+                    $userId,
+                    "Referral status updated to {$action} for {$referral['referrer_name']}",
+                    $activity_data,
+                    $userId
                 ]);
-                
-                $pdo->commit();
-                
-                $_SESSION['success_message'] = "Referral status updated successfully.";
-            } else {
-                $pdo->rollBack();
-                $_SESSION['error_message'] = "Failed to update referral status.";
+            } catch (Throwable $e) {
+                error_log("Referral status activity log failed: " . $e->getMessage());
             }
-        }
-        
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        $_SESSION['error_message'] = "Failed to update referral status: " . $e->getMessage();
-        error_log("Referral status update error: " . $e->getMessage());
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
-    }
-}
 
-// Handle commission payment toggle
-if (isset($_GET['pay_commission']) && isset($_GET['id'])) {
-    $referral_id = (int)$_GET['id'];
-    $pay = (int)$_GET['pay_commission'];
-    
-    try {
-        $pdo->beginTransaction();
-        
-        $stmt = $pdo->prepare("UPDATE referrals SET commission_paid = ?, updated_at = NOW(), updated_by = ? WHERE id = ?");
-        $result = $stmt->execute([$pay, $_SESSION['user_id'], $referral_id]);
-        
-        if ($result) {
-            // Get referral details for logging
-            $getStmt = $pdo->prepare("SELECT referrer_name, referral_code, commission_amount FROM referrals WHERE id = ?");
-            $getStmt->execute([$referral_id]);
-            $referral = $getStmt->fetch();
-            
-            // Log activity
-            $activity_stmt = $pdo->prepare("
-                INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                VALUES (?, 4, ?, ?, NOW())
-            ");
-            
-            $activity_data = json_encode([
-                'referral_id' => $referral_id,
-                'referral_code' => $referral['referral_code'],
-                'commission_amount' => $referral['commission_amount'],
-                'commission_paid' => $pay == 1 ? 'Yes' : 'No'
-            ]);
-            
-            $activity_stmt->execute([
-                $_SESSION['user_id'],
-                "Commission " . ($pay == 1 ? 'paid' : 'unpaid') . " for " . $referral['referrer_name'],
-                $activity_data
-            ]);
-            
             $pdo->commit();
-            
-            $_SESSION['success_message'] = "Commission status updated successfully.";
-        } else {
-            $pdo->rollBack();
-            $_SESSION['error_message'] = "Failed to update commission status.";
+            $_SESSION['success_message'] = "Referral status updated successfully.";
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['error_message'] = "Failed to update referral status: " . $e->getMessage();
+            error_log("Referral status update error: " . $e->getMessage());
         }
-        
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        $_SESSION['error_message'] = "Failed to update commission status: " . $e->getMessage();
-        error_log("Commission update error: " . $e->getMessage());
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
     }
+
+    redirectWithFilters();
 }
 
-// Handle delete
-if (isset($_GET['delete']) && isset($_GET['id'])) {
+/* =========================
+   COMMISSION TOGGLE
+========================= */
+if (isset($_GET['pay_commission'], $_GET['id'])) {
     $referral_id = (int)$_GET['id'];
-    
-    try {
-        $pdo->beginTransaction();
-        
-        // Get referral data for logging
-        $getStmt = $pdo->prepare("SELECT referrer_name, referral_code FROM referrals WHERE id = ?");
-        $getStmt->execute([$referral_id]);
-        $referral = $getStmt->fetch();
-        
-        if ($referral) {
-            // Delete the referral
-            $stmt = $pdo->prepare("DELETE FROM referrals WHERE id = ?");
-            $result = $stmt->execute([$referral_id]);
-            
-            if ($result) {
-                // Log activity
+    $pay = (int)$_GET['pay_commission'] === 1 ? 1 : 0;
+
+    if ($referral_id > 0) {
+        try {
+            $pdo->beginTransaction();
+
+            $getStmt = $pdo->prepare("
+                SELECT id, referrer_name, referral_code, commission_amount, commission_paid
+                FROM referrals
+                WHERE id = ?
+                LIMIT 1
+            ");
+            $getStmt->execute([$referral_id]);
+            $referral = $getStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$referral) {
+                throw new Exception("Referral not found.");
+            }
+
+            $stmt = $pdo->prepare("
+                UPDATE referrals
+                SET commission_paid = ?, updated_at = NOW(), updated_by = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$pay, $userId, $referral_id]);
+
+            try {
                 $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 5, ?, ?, NOW())
+                    INSERT INTO activity_logs (
+                        user_id, activity_type_id, description, activity_data, created_at, created_by
+                    ) VALUES (?, 4, ?, ?, NOW(), ?)
                 ");
-                
+
+                $activity_data = json_encode([
+                    'referral_id' => $referral_id,
+                    'referral_code' => $referral['referral_code'],
+                    'commission_amount' => $referral['commission_amount'],
+                    'old_commission_paid' => (int)$referral['commission_paid'],
+                    'new_commission_paid' => $pay
+                ], JSON_UNESCAPED_UNICODE);
+
+                $activity_stmt->execute([
+                    $userId,
+                    "Commission " . ($pay === 1 ? 'paid' : 'unpaid') . " for " . $referral['referrer_name'],
+                    $activity_data,
+                    $userId
+                ]);
+            } catch (Throwable $e) {
+                error_log("Referral commission activity log failed: " . $e->getMessage());
+            }
+
+            $pdo->commit();
+            $_SESSION['success_message'] = "Commission status updated successfully.";
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['error_message'] = "Failed to update commission status: " . $e->getMessage();
+            error_log("Commission update error: " . $e->getMessage());
+        }
+    }
+
+    redirectWithFilters();
+}
+
+/* =========================
+   DELETE
+========================= */
+if (isset($_GET['delete'], $_GET['id'])) {
+    $referral_id = (int)$_GET['id'];
+
+    if ($referral_id > 0) {
+        try {
+            $pdo->beginTransaction();
+
+            $getStmt = $pdo->prepare("SELECT id, referrer_name, referral_code FROM referrals WHERE id = ? LIMIT 1");
+            $getStmt->execute([$referral_id]);
+            $referral = $getStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$referral) {
+                throw new Exception("Referral not found.");
+            }
+
+            $stmt = $pdo->prepare("DELETE FROM referrals WHERE id = ?");
+            $stmt->execute([$referral_id]);
+
+            try {
+                $activity_stmt = $pdo->prepare("
+                    INSERT INTO activity_logs (
+                        user_id, activity_type_id, description, activity_data, created_at, created_by
+                    ) VALUES (?, 5, ?, ?, NOW(), ?)
+                ");
+
                 $activity_data = json_encode([
                     'referral_id' => $referral_id,
                     'referral_code' => $referral['referral_code'],
                     'referrer_name' => $referral['referrer_name']
-                ]);
-                
+                ], JSON_UNESCAPED_UNICODE);
+
                 $activity_stmt->execute([
-                    $_SESSION['user_id'],
+                    $userId,
                     "Referral deleted: " . $referral['referrer_name'],
-                    $activity_data
+                    $activity_data,
+                    $userId
                 ]);
-                
-                $pdo->commit();
-                
-                $_SESSION['success_message'] = "Referral deleted successfully.";
-            } else {
-                $pdo->rollBack();
-                $_SESSION['error_message'] = "Failed to delete referral.";
+            } catch (Throwable $e) {
+                error_log("Referral delete activity log failed: " . $e->getMessage());
             }
+
+            $pdo->commit();
+            $_SESSION['success_message'] = "Referral deleted successfully.";
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['error_message'] = "Failed to delete referral: " . $e->getMessage();
+            error_log("Referral delete error: " . $e->getMessage());
         }
-        
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        $_SESSION['error_message'] = "Failed to delete referral: " . $e->getMessage();
-        error_log("Referral delete error: " . $e->getMessage());
-        header("Location: referrals.php?" . http_build_query(['search' => $search, 'status' => $status, 'page' => $page]));
-        exit();
     }
+
+    redirectWithFilters();
 }
 
-// Build the query with filters
+/* =========================
+   LIST QUERY
+========================= */
 $query = "
-    SELECT 
+    SELECT
         r.*,
-        c.name as referred_customer_name,
-        c.customer_code as referred_customer_code,
-        c.phone as referred_customer_phone,
-        u.full_name as created_by_name
+        c.name AS referred_customer_name,
+        c.customer_code AS referred_customer_code,
+        c.phone AS referred_customer_phone,
+        u.full_name AS created_by_name
     FROM referrals r
     LEFT JOIN customers c ON r.referred_customer_id = c.id
     LEFT JOIN users u ON r.created_by = u.id
@@ -315,11 +391,11 @@ $query = "
 $countQuery = "SELECT COUNT(*) FROM referrals r WHERE 1=1";
 $params = [];
 
-if (!empty($search)) {
+if ($search !== '') {
     $query .= " AND (r.referrer_name LIKE ? OR r.referrer_phone LIKE ? OR r.referrer_email LIKE ? OR r.referral_code LIKE ?)";
     $countQuery .= " AND (r.referrer_name LIKE ? OR r.referrer_phone LIKE ? OR r.referrer_email LIKE ? OR r.referral_code LIKE ?)";
-    $searchTerm = "%$search%";
-    $params = array_merge($params, [$searchTerm, $searchTerm, $searchTerm, $searchTerm]);
+    $searchTerm = '%' . $search . '%';
+    array_push($params, $searchTerm, $searchTerm, $searchTerm, $searchTerm);
 }
 
 if ($status !== 'all') {
@@ -328,48 +404,70 @@ if ($status !== 'all') {
     $params[] = $status;
 }
 
-if (!empty($from_date) && !empty($to_date)) {
+if ($from_date !== '' && $to_date !== '') {
     $query .= " AND DATE(r.referral_date) BETWEEN ? AND ?";
     $countQuery .= " AND DATE(r.referral_date) BETWEEN ? AND ?";
     $params[] = $from_date;
     $params[] = $to_date;
 }
 
-// Get total records for pagination
 $countStmt = $pdo->prepare($countQuery);
 $countStmt->execute($params);
-$totalRecords = $countStmt->fetchColumn();
-$totalPages = ceil($totalRecords / $limit);
+$totalRecords = (int)$countStmt->fetchColumn();
+$totalPages = max(1, (int)ceil($totalRecords / $limit));
 
-// Get referrals for current page
 $query .= " ORDER BY r.created_at DESC LIMIT ? OFFSET ?";
-$params[] = $limit;
-$params[] = $offset;
+$listParams = $params;
+$listParams[] = $limit;
+$listParams[] = $offset;
 
 $stmt = $pdo->prepare($query);
-$stmt->execute($params);
-$referrals = $stmt->fetchAll();
 
-// Calculate statistics
+for ($i = 0; $i < count($listParams); $i++) {
+    $paramIndex = $i + 1;
+    $paramValue = $listParams[$i];
+
+    if ($i >= count($listParams) - 2) {
+        $stmt->bindValue($paramIndex, (int)$paramValue, PDO::PARAM_INT);
+    } else {
+        $stmt->bindValue($paramIndex, $paramValue, PDO::PARAM_STR);
+    }
+}
+
+$stmt->execute();
+$referrals = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+/* =========================
+   STATS
+========================= */
 $statsQuery = "
-    SELECT 
-        COUNT(*) as total_referrals,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_referrals,
-        SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted_referrals,
-        SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired_referrals,
-        COALESCE(SUM(commission_amount), 0) as total_commission,
-        COALESCE(SUM(CASE WHEN commission_paid = 1 THEN commission_amount ELSE 0 END), 0) as paid_commission,
-        COALESCE(SUM(CASE WHEN commission_paid = 0 AND status = 'converted' THEN commission_amount ELSE 0 END), 0) as pending_commission
+    SELECT
+        COUNT(*) AS total_referrals,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_referrals,
+        SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) AS converted_referrals,
+        SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) AS expired_referrals,
+        COALESCE(SUM(commission_amount), 0) AS total_commission,
+        COALESCE(SUM(CASE WHEN commission_paid = 1 THEN commission_amount ELSE 0 END), 0) AS paid_commission,
+        COALESCE(SUM(CASE WHEN commission_paid = 0 AND status = 'converted' THEN commission_amount ELSE 0 END), 0) AS pending_commission
     FROM referrals
 ";
 $statsStmt = $pdo->query($statsQuery);
-$stats = $statsStmt->fetch();
+$stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-// Get all customers for dropdown
-$customersStmt = $pdo->query("SELECT id, name, customer_code, phone FROM customers WHERE is_active = 1 ORDER BY name");
-$customers = $customersStmt->fetchAll();
+/* =========================
+   CUSTOMERS
+========================= */
+$customersStmt = $pdo->query("
+    SELECT id, name, customer_code, phone
+    FROM customers
+    WHERE is_active = 1
+    ORDER BY name
+");
+$customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Check for session messages
+/* =========================
+   SESSION MESSAGES
+========================= */
 if (isset($_SESSION['success_message'])) {
     $success = $_SESSION['success_message'];
     unset($_SESSION['success_message']);
@@ -387,71 +485,44 @@ if (isset($_SESSION['error_message'])) {
 
 <body data-sidebar="dark">
 
-<!-- Loader -->
 <?php include('includes/pre-loader.php'); ?>
 
-<!-- Begin page -->
 <div id="layout-wrapper">
 
-    <?php include('includes/topbar.php'); ?>    
+    <?php include('includes/topbar.php'); ?>
 
-    <!-- ========== Left Sidebar Start ========== -->
     <div class="vertical-menu">
         <div data-simplebar class="h-100">
-            <!--- Sidemenu -->
             <?php include('includes/sidebar.php'); ?>
-            <!-- Sidebar -->
         </div>
     </div>
-    <!-- Left Sidebar End -->
 
-    <!-- ============================================================== -->
-    <!-- Start right Content here -->
-    <!-- ============================================================== -->
     <div class="main-content">
         <div class="page-content">
             <div class="container-fluid">
 
-                <!-- Start page title -->
-                <div class="row">
-                    <div class="col-12">
-                        <div class="page-title-box d-flex align-items-center justify-content-between">
-                            <h4 class="mb-0 font-size-18">Referrals Management</h4>
-                            <div class="page-title-right">
-                                <ol class="breadcrumb m-0">
-                                    <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
-                                    <li class="breadcrumb-item"><a href="manage-customers.php">Customers</a></li>
-                                    <li class="breadcrumb-item active">Referrals</li>
-                                </ol>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <!-- end page title -->
 
-                <!-- Alerts -->
                 <?php if ($error): ?>
                     <div class="alert alert-danger alert-dismissible fade show" role="alert">
                         <i class="mdi mdi-alert-circle me-2"></i>
-                        <?= htmlspecialchars($error) ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                <?php endif; ?>
-                
-                <?php if ($success): ?>
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="mdi mdi-check-circle me-2"></i>
-                        <?= htmlspecialchars($success) ?>
+                        <?= h($error) ?>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <?php endif; ?>
 
-                <!-- Statistics Cards -->
+                <?php if ($success): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="mdi mdi-check-circle me-2"></i>
+                        <?= h($success) ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <?php endif; ?>
+
                 <div class="row">
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-info mt-2"><?= number_format($stats['total_referrals'] ?? 0) ?></h3>
+                                <h3 class="text-info mt-2"><?= number_format((float)($stats['total_referrals'] ?? 0)) ?></h3>
                                 Total Referrals
                             </div>
                         </div>
@@ -459,7 +530,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-purple mt-2"><?= number_format($stats['converted_referrals'] ?? 0) ?></h3>
+                                <h3 class="text-purple mt-2"><?= number_format((float)($stats['converted_referrals'] ?? 0)) ?></h3>
                                 Converted
                             </div>
                         </div>
@@ -467,7 +538,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-primary mt-2">₹<?= number_format($stats['total_commission'] ?? 0, 2) ?></h3>
+                                <h3 class="text-primary mt-2">₹<?= number_format((float)($stats['total_commission'] ?? 0), 2) ?></h3>
                                 Total Commission
                             </div>
                         </div>
@@ -475,15 +546,13 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-6 col-xl-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-danger mt-2">₹<?= number_format($stats['pending_commission'] ?? 0, 2) ?></h3>
+                                <h3 class="text-danger mt-2">₹<?= number_format((float)($stats['pending_commission'] ?? 0), 2) ?></h3>
                                 Pending Commission
                             </div>
                         </div>
                     </div>
                 </div>
-                <!-- end row -->
 
-                <!-- Filter and Actions Row -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -497,24 +566,20 @@ if (isset($_SESSION['error_message'])) {
                                                         <label class="form-label">Search</label>
                                                         <div class="input-group">
                                                             <span class="input-group-text"><i class="mdi mdi-magnify"></i></span>
-                                                            <input type="text" 
-                                                                   class="form-control" 
-                                                                   name="search" 
-                                                                   placeholder="Search by name, phone, email or code..." 
-                                                                   value="<?= htmlspecialchars($search) ?>">
+                                                            <input type="text" class="form-control" name="search" placeholder="Search by name, phone, email or code..." value="<?= h($search) ?>">
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div class="col-md-2">
                                                     <div class="mb-3">
                                                         <label class="form-label">From Date</label>
-                                                        <input type="date" class="form-control" name="from_date" value="<?= $from_date ?>">
+                                                        <input type="date" class="form-control" name="from_date" value="<?= h($from_date) ?>">
                                                     </div>
                                                 </div>
                                                 <div class="col-md-2">
                                                     <div class="mb-3">
                                                         <label class="form-label">To Date</label>
-                                                        <input type="date" class="form-control" name="to_date" value="<?= $to_date ?>">
+                                                        <input type="date" class="form-control" name="to_date" value="<?= h($to_date) ?>">
                                                     </div>
                                                 </div>
                                                 <div class="col-md-2">
@@ -556,15 +621,13 @@ if (isset($_SESSION['error_message'])) {
                         </div>
                     </div>
                 </div>
-                <!-- end filter row -->
 
-                <!-- Referrals Table -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Referral List</h4>
-                                
+
                                 <?php if (empty($referrals)): ?>
                                     <div class="text-center py-5">
                                         <i class="mdi mdi-account-multiple-off" style="font-size: 48px; color: #ccc;"></i>
@@ -592,35 +655,30 @@ if (isset($_SESSION['error_message'])) {
                                             <tbody>
                                                 <?php foreach ($referrals as $referral): ?>
                                                     <tr>
+                                                        <td><strong><?= h($referral['referral_code']) ?></strong></td>
                                                         <td>
-                                                            <strong><?= htmlspecialchars($referral['referral_code']) ?></strong>
-                                                        </td>
-                                                        <td>
-                                                            <h6 class="mb-1"><?= htmlspecialchars($referral['referrer_name']) ?></h6>
-                                                            <?php if ($referral['referrer_email']): ?>
-                                                                <small class="text-muted"><?= htmlspecialchars($referral['referrer_email']) ?></small>
+                                                            <h6 class="mb-1"><?= h($referral['referrer_name']) ?></h6>
+                                                            <?php if (!empty($referral['referrer_email'])): ?>
+                                                                <small class="text-muted"><?= h($referral['referrer_email']) ?></small>
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <i class="mdi mdi-phone me-1 text-muted"></i> <?= htmlspecialchars($referral['referrer_phone']) ?>
+                                                            <i class="mdi mdi-phone me-1 text-muted"></i> <?= h($referral['referrer_phone']) ?>
                                                         </td>
                                                         <td>
-                                                            <?php if ($referral['referred_customer_id']): ?>
-                                                                <a href="view-customer.php?id=<?= $referral['referred_customer_id'] ?>" class="text-primary">
-                                                                    <?= htmlspecialchars($referral['referred_customer_name']) ?>
-                                                                </a>
-                                                                <br>
-                                                                <small class="text-muted"><?= htmlspecialchars($referral['referred_customer_code']) ?></small>
+                                                            <?php if (!empty($referral['referred_customer_id'])): ?>
+                                                                <a href="view-customer.php?id=<?= (int)$referral['referred_customer_id'] ?>" class="text-primary">
+                                                                    <?= h($referral['referred_customer_name']) ?>
+                                                                </a><br>
+                                                                <small class="text-muted"><?= h($referral['referred_customer_code']) ?></small>
                                                             <?php else: ?>
                                                                 <span class="text-muted">Not assigned</span>
                                                             <?php endif; ?>
                                                         </td>
+                                                        <td><?= date('d-m-Y', strtotime($referral['referral_date'])) ?></td>
                                                         <td>
-                                                            <?= date('d-m-Y', strtotime($referral['referral_date'])) ?>
-                                                        </td>
-                                                        <td>
-                                                            <div>₹<?= number_format($referral['commission_amount'], 2) ?></div>
-                                                            <?php if ($referral['commission_paid']): ?>
+                                                            <div>₹<?= number_format((float)$referral['commission_amount'], 2) ?></div>
+                                                            <?php if ((int)$referral['commission_paid'] === 1): ?>
                                                                 <span class="badge bg-soft-success text-success">Paid</span>
                                                             <?php else: ?>
                                                                 <span class="badge bg-soft-warning text-warning">Unpaid</span>
@@ -628,9 +686,9 @@ if (isset($_SESSION['error_message'])) {
                                                         </td>
                                                         <td>
                                                             <?php
-                                                            $statusClass = '';
-                                                            $statusIcon = '';
-                                                            switch($referral['status']) {
+                                                            $statusClass = 'secondary';
+                                                            $statusIcon = 'help-circle';
+                                                            switch ($referral['status']) {
                                                                 case 'pending':
                                                                     $statusClass = 'warning';
                                                                     $statusIcon = 'clock-outline';
@@ -646,58 +704,46 @@ if (isset($_SESSION['error_message'])) {
                                                             }
                                                             ?>
                                                             <span class="badge bg-soft-<?= $statusClass ?> text-<?= $statusClass ?>">
-                                                                <i class="mdi mdi-<?= $statusIcon ?> me-1"></i>
-                                                                <?= ucfirst($referral['status']) ?>
+                                                                <i class="mdi mdi-<?= $statusIcon ?> me-1"></i><?= ucfirst($referral['status']) ?>
                                                             </span>
                                                         </td>
                                                         <td>
                                                             <div class="btn-group" role="group">
-                                                                <button type="button" 
-                                                                        class="btn btn-sm btn-soft-primary dropdown-toggle" 
-                                                                        data-bs-toggle="dropdown" 
-                                                                        aria-expanded="false">
+                                                                <button type="button" class="btn btn-sm btn-soft-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                                                     <i class="mdi mdi-cog"></i>
                                                                 </button>
                                                                 <ul class="dropdown-menu">
                                                                     <li>
-                                                                        <a class="dropdown-item" href="javascript:void(0);" onclick='viewReferral(<?= json_encode($referral) ?>)'>
+                                                                        <a class="dropdown-item" href="javascript:void(0);" onclick='viewReferral(<?= json_encode($referral, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>)'>
                                                                             <i class="mdi mdi-eye text-primary me-2"></i> View Details
                                                                         </a>
                                                                     </li>
+                                                                    <li><hr class="dropdown-divider"></li>
                                                                     <li>
-                                                                        <hr class="dropdown-divider">
-                                                                    </li>
-                                                                    <li>
-                                                                        <a class="dropdown-item <?= $referral['status'] === 'pending' ? '' : 'disabled' ?>" 
-                                                                           href="?action=converted&id=<?= $referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&page=<?= $page ?>">
+                                                                        <a class="dropdown-item <?= $referral['status'] === 'pending' ? '' : 'disabled' ?>" href="?action=converted&id=<?= (int)$referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>&page=<?= (int)$page ?>">
                                                                             <i class="mdi mdi-check-circle text-success me-2"></i> Mark as Converted
                                                                         </a>
                                                                     </li>
                                                                     <li>
-                                                                        <a class="dropdown-item <?= $referral['status'] === 'pending' ? '' : 'disabled' ?>" 
-                                                                           href="?action=expired&id=<?= $referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&page=<?= $page ?>">
+                                                                        <a class="dropdown-item <?= $referral['status'] === 'pending' ? '' : 'disabled' ?>" href="?action=expired&id=<?= (int)$referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>&page=<?= (int)$page ?>">
                                                                             <i class="mdi mdi-clock-alert text-warning me-2"></i> Mark as Expired
                                                                         </a>
                                                                     </li>
+                                                                    <li><hr class="dropdown-divider"></li>
                                                                     <li>
-                                                                        <hr class="dropdown-divider">
-                                                                    </li>
-                                                                    <li>
-                                                                        <?php if ($referral['commission_paid']): ?>
-                                                                            <a class="dropdown-item" href="?pay_commission=0&id=<?= $referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&page=<?= $page ?>">
+                                                                        <?php if ((int)$referral['commission_paid'] === 1): ?>
+                                                                            <a class="dropdown-item" href="?pay_commission=0&id=<?= (int)$referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>&page=<?= (int)$page ?>">
                                                                                 <i class="mdi mdi-cash-remove text-danger me-2"></i> Mark as Unpaid
                                                                             </a>
                                                                         <?php else: ?>
-                                                                            <a class="dropdown-item" href="?pay_commission=1&id=<?= $referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&page=<?= $page ?>">
+                                                                            <a class="dropdown-item" href="?pay_commission=1&id=<?= (int)$referral['id'] ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>&page=<?= (int)$page ?>">
                                                                                 <i class="mdi mdi-cash-check text-success me-2"></i> Mark as Paid
                                                                             </a>
                                                                         <?php endif; ?>
                                                                     </li>
+                                                                    <li><hr class="dropdown-divider"></li>
                                                                     <li>
-                                                                        <hr class="dropdown-divider">
-                                                                    </li>
-                                                                    <li>
-                                                                        <a class="dropdown-item text-danger" href="javascript:void(0);" onclick="confirmDelete(<?= $referral['id'] ?>, '<?= htmlspecialchars(addslashes($referral['referrer_name'])) ?>')">
+                                                                        <a class="dropdown-item text-danger" href="javascript:void(0);" onclick="confirmDelete(<?= (int)$referral['id'] ?>, <?= json_encode($referral['referrer_name']) ?>)">
                                                                             <i class="mdi mdi-delete text-danger me-2"></i> Delete
                                                                         </a>
                                                                     </li>
@@ -709,9 +755,7 @@ if (isset($_SESSION['error_message'])) {
                                             </tbody>
                                         </table>
                                     </div>
-                                    <!-- end table-responsive -->
 
-                                    <!-- Pagination -->
                                     <?php if ($totalPages > 1): ?>
                                         <div class="row mt-4">
                                             <div class="col-sm-6">
@@ -722,23 +766,23 @@ if (isset($_SESSION['error_message'])) {
                                             <div class="col-sm-6">
                                                 <ul class="pagination justify-content-end">
                                                     <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
+                                                        <a class="page-link" href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>">
                                                             <i class="mdi mdi-chevron-left"></i>
                                                         </a>
                                                     </li>
-                                                    
-                                                    <?php 
+
+                                                    <?php
                                                     $startPage = max(1, $page - 2);
                                                     $endPage = min($totalPages, $page + 2);
-                                                    for ($i = $startPage; $i <= $endPage; $i++): 
+                                                    for ($i = $startPage; $i <= $endPage; $i++):
                                                     ?>
                                                         <li class="page-item <?= $i === $page ? 'active' : '' ?>">
-                                                            <a class="page-link" href="?page=<?= $i ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>"><?= $i ?></a>
+                                                            <a class="page-link" href="?page=<?= $i ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>"><?= $i ?></a>
                                                         </li>
                                                     <?php endfor; ?>
-                                                    
+
                                                     <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
+                                                        <a class="page-link" href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>&status=<?= urlencode($status) ?>&from_date=<?= urlencode($from_date) ?>&to_date=<?= urlencode($to_date) ?>">
                                                             <i class="mdi mdi-chevron-right"></i>
                                                         </a>
                                                     </li>
@@ -751,36 +795,27 @@ if (isset($_SESSION['error_message'])) {
                         </div>
                     </div>
                 </div>
-                <!-- end row -->
 
             </div>
-            <!-- container-fluid -->
         </div>
-        <!-- End Page-content -->
 
         <?php include('includes/footer.php'); ?>
     </div>
-    <!-- end main content-->
-
 </div>
-<!-- END layout-wrapper -->
 
-<!-- Right Sidebar -->
 <?php include('includes/rightbar.php'); ?>
-<!-- /Right-bar -->
 
-<!-- Add Referral Modal -->
 <div class="modal fade" id="addReferralModal" tabindex="-1" aria-labelledby="addReferralModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title text-white" id="addReferralModalLabel">
-                    <i class="mdi mdi-account-plus me-2"></i>
-                    Add New Referral
+                    <i class="mdi mdi-account-plus me-2"></i> Add New Referral
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="" id="referralForm">
+                <input type="hidden" name="form_action" value="add_referral">
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-md-6">
@@ -802,7 +837,7 @@ if (isset($_SESSION['error_message'])) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -823,7 +858,7 @@ if (isset($_SESSION['error_message'])) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -831,8 +866,8 @@ if (isset($_SESSION['error_message'])) {
                                 <select name="referred_customer_id" class="form-control">
                                     <option value="">Select customer (optional)</option>
                                     <?php foreach ($customers as $cust): ?>
-                                        <option value="<?= $cust['id'] ?>">
-                                            <?= htmlspecialchars($cust['name']) ?> (<?= htmlspecialchars($cust['customer_code']) ?>)
+                                        <option value="<?= (int)$cust['id'] ?>">
+                                            <?= h($cust['name']) ?> (<?= h($cust['customer_code']) ?>)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -848,12 +883,12 @@ if (isset($_SESSION['error_message'])) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Notes</label>
                         <textarea name="notes" class="form-control" rows="2" placeholder="Additional notes..."></textarea>
                     </div>
-                    
+
                     <div class="alert alert-info">
                         <i class="mdi mdi-information me-2"></i>
                         A unique referral code will be automatically generated.
@@ -863,7 +898,7 @@ if (isset($_SESSION['error_message'])) {
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                         <i class="mdi mdi-close me-1"></i> Cancel
                     </button>
-                    <button type="submit" name="add_referral" class="btn btn-success" id="referralSubmitBtn">
+                    <button type="submit" class="btn btn-success" id="referralSubmitBtn">
                         <i class="mdi mdi-check me-1"></i>
                         <span id="referralBtnText">Add Referral</span>
                         <span id="referralLoading" style="display:none;">
@@ -877,14 +912,12 @@ if (isset($_SESSION['error_message'])) {
     </div>
 </div>
 
-<!-- View Referral Modal -->
 <div class="modal fade" id="viewReferralModal" tabindex="-1" aria-labelledby="viewReferralModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title text-white" id="viewReferralModalLabel">
-                    <i class="mdi mdi-account-details me-2"></i>
-                    Referral Details
+                    <i class="mdi mdi-account-details me-2"></i> Referral Details
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -899,43 +932,22 @@ if (isset($_SESSION['error_message'])) {
                         <p id="view_status"></p>
                     </div>
                 </div>
-                
+
                 <h6 class="mt-3 mb-2">Referrer Information</h6>
                 <hr>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Name:</strong></div>
-                    <div class="col-8" id="view_name"></div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Phone:</strong></div>
-                    <div class="col-8" id="view_phone"></div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Email:</strong></div>
-                    <div class="col-8" id="view_email"></div>
-                </div>
-                
+                <div class="row mb-2"><div class="col-4"><strong>Name:</strong></div><div class="col-8" id="view_name"></div></div>
+                <div class="row mb-2"><div class="col-4"><strong>Phone:</strong></div><div class="col-8" id="view_phone"></div></div>
+                <div class="row mb-2"><div class="col-4"><strong>Email:</strong></div><div class="col-8" id="view_email"></div></div>
+
                 <h6 class="mt-3 mb-2">Referral Details</h6>
                 <hr>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Date:</strong></div>
-                    <div class="col-8" id="view_date"></div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Commission:</strong></div>
-                    <div class="col-8" id="view_commission"></div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Payment Status:</strong></div>
-                    <div class="col-8" id="view_payment"></div>
-                </div>
-                
+                <div class="row mb-2"><div class="col-4"><strong>Date:</strong></div><div class="col-8" id="view_date"></div></div>
+                <div class="row mb-2"><div class="col-4"><strong>Commission:</strong></div><div class="col-8" id="view_commission"></div></div>
+                <div class="row mb-2"><div class="col-4"><strong>Payment Status:</strong></div><div class="col-8" id="view_payment"></div></div>
+
                 <h6 class="mt-3 mb-2">Referred Customer</h6>
                 <hr>
-                <div class="row mb-2">
-                    <div class="col-4"><strong>Customer:</strong></div>
-                    <div class="col-8" id="view_customer"></div>
-                </div>
+                <div class="row mb-2"><div class="col-4"><strong>Customer:</strong></div><div class="col-8" id="view_customer"></div></div>
                 <div class="row mb-2" id="notes_row" style="display:none;">
                     <div class="col-4"><strong>Notes:</strong></div>
                     <div class="col-8" id="view_notes"></div>
@@ -948,179 +960,161 @@ if (isset($_SESSION['error_message'])) {
     </div>
 </div>
 
-<!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 CSS and JS -->
 <link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
 <script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
 
 <script>
-    // Form submission loading state
-    document.getElementById('referralForm')?.addEventListener('submit', function(e) {
-        const btn = document.getElementById('referralSubmitBtn');
-        const btnText = document.getElementById('referralBtnText');
-        const loading = document.getElementById('referralLoading');
-        
-        btn.disabled = true;
-        btnText.style.display = 'none';
-        loading.style.display = 'inline-block';
-    });
-    
-    // Auto-hide alerts after 5 seconds
-    setTimeout(function() {
-        document.querySelectorAll('.alert').forEach(function(alert) {
-            alert.style.transition = 'opacity 0.5s';
-            alert.style.opacity = '0';
-            setTimeout(function() {
+document.getElementById('referralForm')?.addEventListener('submit', function() {
+    const btn = document.getElementById('referralSubmitBtn');
+    const btnText = document.getElementById('referralBtnText');
+    const loading = document.getElementById('referralLoading');
+
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.style.display = 'none';
+    if (loading) loading.style.display = 'inline-block';
+});
+
+setTimeout(function() {
+    document.querySelectorAll('.alert').forEach(function(alert) {
+        alert.style.transition = 'opacity 0.5s';
+        alert.style.opacity = '0';
+        setTimeout(function() {
+            if (alert.parentNode) {
                 alert.remove();
-            }, 500);
-        });
-    }, 5000);
-    
-    // Phone number validation
-    document.querySelector('input[name="referrer_phone"]')?.addEventListener('input', function(e) {
-        this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10);
-    });
-    
-    // View referral details
-    function viewReferral(referral) {
-        document.getElementById('view_code').innerHTML = referral.referral_code;
-        
-        // Status badge
-        let statusBadge = '';
-        switch(referral.status) {
-            case 'pending':
-                statusBadge = '<span class="badge bg-warning">Pending</span>';
-                break;
-            case 'converted':
-                statusBadge = '<span class="badge bg-success">Converted</span>';
-                break;
-            case 'expired':
-                statusBadge = '<span class="badge bg-danger">Expired</span>';
-                break;
-        }
-        document.getElementById('view_status').innerHTML = statusBadge;
-        
-        document.getElementById('view_name').innerHTML = referral.referrer_name || 'N/A';
-        document.getElementById('view_phone').innerHTML = referral.referrer_phone || 'N/A';
-        document.getElementById('view_email').innerHTML = referral.referrer_email || 'N/A';
-        document.getElementById('view_date').innerHTML = referral.referral_date ? new Date(referral.referral_date).toLocaleDateString('en-IN') : 'N/A';
-        document.getElementById('view_commission').innerHTML = '₹' + (parseFloat(referral.commission_amount) || 0).toFixed(2);
-        document.getElementById('view_payment').innerHTML = referral.commission_paid ? 
-            '<span class="badge bg-success">Paid</span>' : 
-            '<span class="badge bg-warning">Unpaid</span>';
-        document.getElementById('view_customer').innerHTML = referral.referred_customer_name || 'Not assigned';
-        
-        if (referral.notes) {
-            document.getElementById('view_notes').innerHTML = referral.notes;
-            document.getElementById('notes_row').style.display = 'flex';
-        } else {
-            document.getElementById('notes_row').style.display = 'none';
-        }
-        
-        $('#viewReferralModal').modal('show');
-    }
-    
-    // Confirm delete action
-    function confirmDelete(id, name) {
-        Swal.fire({
-            title: 'Delete Referral?',
-            html: `Are you sure you want to delete referral for <strong>${name}</strong>?<br><br>
-                   <span class="text-danger">This action cannot be undone!</span>`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#f46a6a',
-            cancelButtonColor: '#556ee6',
-            confirmButtonText: 'Yes, delete it!',
-            cancelButtonText: 'Cancel',
-            reverseButtons: true,
-            focusCancel: true
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // Show loading state
-                Swal.fire({
-                    title: 'Deleting...',
-                    text: 'Please wait while we delete the referral',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
-                });
-                
-                // Get current filter parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                const search = urlParams.get('search') || '';
-                const status = urlParams.get('status') || 'all';
-                const page = urlParams.get('page') || 1;
-                
-                window.location.href = `referrals.php?delete=1&id=${id}&search=${encodeURIComponent(search)}&status=${status}&page=${page}`;
-            }
-        });
-    }
-    
-    // Auto-submit on status change
-    document.querySelector('select[name="status"]')?.addEventListener('change', function() {
-        document.getElementById('filterForm').submit();
-    });
-    
-    // Search with debounce
-    let searchTimeout;
-    document.querySelector('input[name="search"]')?.addEventListener('keyup', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            if (this.value.length >= 2 || this.value.length === 0) {
-                document.getElementById('filterForm').submit();
             }
         }, 500);
     });
-    
-    // Date validation
-    document.querySelector('input[name="from_date"]')?.addEventListener('change', function() {
-        const toDate = document.querySelector('input[name="to_date"]');
-        if (toDate.value < this.value) {
-            toDate.value = this.value;
+}, 5000);
+
+document.querySelector('input[name="referrer_phone"]')?.addEventListener('input', function() {
+    this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10);
+});
+
+function viewReferral(referral) {
+    document.getElementById('view_code').textContent = referral.referral_code || 'N/A';
+
+    let statusBadge = '';
+    switch (referral.status) {
+        case 'pending':
+            statusBadge = '<span class="badge bg-warning">Pending</span>';
+            break;
+        case 'converted':
+            statusBadge = '<span class="badge bg-success">Converted</span>';
+            break;
+        case 'expired':
+            statusBadge = '<span class="badge bg-danger">Expired</span>';
+            break;
+        default:
+            statusBadge = '<span class="badge bg-secondary">Unknown</span>';
+    }
+    document.getElementById('view_status').innerHTML = statusBadge;
+
+    document.getElementById('view_name').textContent = referral.referrer_name || 'N/A';
+    document.getElementById('view_phone').textContent = referral.referrer_phone || 'N/A';
+    document.getElementById('view_email').textContent = referral.referrer_email || 'N/A';
+    document.getElementById('view_date').textContent = referral.referral_date ? new Date(referral.referral_date).toLocaleDateString('en-IN') : 'N/A';
+    document.getElementById('view_commission').textContent = '₹' + (parseFloat(referral.commission_amount) || 0).toFixed(2);
+    document.getElementById('view_payment').innerHTML = parseInt(referral.commission_paid) === 1
+        ? '<span class="badge bg-success">Paid</span>'
+        : '<span class="badge bg-warning">Unpaid</span>';
+    document.getElementById('view_customer').textContent = referral.referred_customer_name || 'Not assigned';
+
+    if (referral.notes) {
+        document.getElementById('view_notes').textContent = referral.notes;
+        document.getElementById('notes_row').style.display = 'flex';
+    } else {
+        document.getElementById('notes_row').style.display = 'none';
+    }
+
+    $('#viewReferralModal').modal('show');
+}
+
+function confirmDelete(id, name) {
+    Swal.fire({
+        title: 'Delete Referral?',
+        html: `Are you sure you want to delete referral for <strong>${name}</strong>?<br><br><span class="text-danger">This action cannot be undone!</span>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#f46a6a',
+        cancelButtonColor: '#556ee6',
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const search = urlParams.get('search') || '';
+            const status = urlParams.get('status') || 'all';
+            const from_date = urlParams.get('from_date') || '';
+            const to_date = urlParams.get('to_date') || '';
+            const page = urlParams.get('page') || 1;
+
+            window.location.href =
+                `referrals.php?delete=1&id=${id}` +
+                `&search=${encodeURIComponent(search)}` +
+                `&status=${encodeURIComponent(status)}` +
+                `&from_date=${encodeURIComponent(from_date)}` +
+                `&to_date=${encodeURIComponent(to_date)}` +
+                `&page=${page}`;
         }
     });
-    
-    document.querySelector('input[name="to_date"]')?.addEventListener('change', function() {
-        const fromDate = document.querySelector('input[name="from_date"]');
-        if (fromDate.value > this.value) {
-            fromDate.value = this.value;
+}
+
+document.querySelector('select[name="status"]')?.addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+let searchTimeout;
+document.querySelector('input[name="search"]')?.addEventListener('keyup', function() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        if (this.value.length >= 2 || this.value.length === 0) {
+            document.getElementById('filterForm').submit();
         }
-    });
-    
-    // Keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
-        // Alt + R to open add referral modal
-        if (e.altKey && e.key === 'r') {
-            e.preventDefault();
-            $('#addReferralModal').modal('show');
+    }, 500);
+});
+
+document.querySelector('input[name="from_date"]')?.addEventListener('change', function() {
+    const toDate = document.querySelector('input[name="to_date"]');
+    if (toDate && toDate.value < this.value) {
+        toDate.value = this.value;
+    }
+});
+
+document.querySelector('input[name="to_date"]')?.addEventListener('change', function() {
+    const fromDate = document.querySelector('input[name="from_date"]');
+    if (fromDate && fromDate.value > this.value) {
+        fromDate.value = this.value;
+    }
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.altKey && e.key === 'r') {
+        e.preventDefault();
+        $('#addReferralModal').modal('show');
+    }
+
+    if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        document.querySelector('input[name="search"]')?.focus();
+    }
+
+    if (e.key === 'Escape') {
+        const searchInput = document.querySelector('input[name="search"]');
+        if (searchInput && searchInput.value !== '') {
+            searchInput.value = '';
+            document.getElementById('filterForm').submit();
         }
-        
-        // Ctrl + F to focus search
-        if (e.ctrlKey && e.key === 'f') {
-            e.preventDefault();
-            document.querySelector('input[name="search"]')?.focus();
-        }
-        
-        // Escape to clear search
-        if (e.key === 'Escape') {
-            const searchInput = document.querySelector('input[name="search"]');
-            if (searchInput && searchInput.value !== '') {
-                searchInput.value = '';
-                document.getElementById('filterForm').submit();
-            }
-        }
-    });
-    
-    // Initialize tooltips
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
+    }
+});
+
+var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+tooltipTriggerList.map(function (tooltipTriggerEl) {
+    return new bootstrap.Tooltip(tooltipTriggerEl);
+});
 </script>
 
 </body>

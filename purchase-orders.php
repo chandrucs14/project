@@ -1,4 +1,4 @@
-<?php
+<?php  
 date_default_timezone_set('Asia/Kolkata');
 session_start();
 
@@ -9,7 +9,6 @@ require_once 'config/database.php';
 if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
-
 
 // Pagination settings
 $records_per_page = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 20;
@@ -32,59 +31,6 @@ try {
     error_log("Error fetching suppliers: " . $e->getMessage());
 }
 
-// Handle status update
-if (isset($_GET['action']) && $_GET['action'] === 'update_status' && isset($_GET['id']) && isset($_GET['status'])) {
-    $po_id = (int)$_GET['id'];
-    $new_status = $_GET['status'];
-    
-    // Validate status
-    $valid_statuses = ['draft', 'sent', 'confirmed', 'partially_received', 'completed', 'cancelled'];
-    if (in_array($new_status, $valid_statuses)) {
-        try {
-            $pdo->beginTransaction();
-            
-            // Get PO details for logging
-            $poStmt = $pdo->prepare("SELECT po_number, supplier_id FROM purchase_orders WHERE id = ?");
-            $poStmt->execute([$po_id]);
-            $po = $poStmt->fetch();
-            
-            if ($po) {
-                // Update status
-                $updateStmt = $pdo->prepare("UPDATE purchase_orders SET status = ?, updated_at = NOW(), updated_by = ? WHERE id = ?");
-                $updateStmt->execute([$new_status, $_SESSION['user_id'], $po_id]);
-                
-                // Log activity
-                $logStmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 4, ?, ?, NOW())
-                ");
-                
-                $activity_data = json_encode([
-                    'po_id' => $po_id,
-                    'po_number' => $po['po_number'],
-                    'old_status' => $_GET['old_status'] ?? 'unknown',
-                    'new_status' => $new_status
-                ]);
-                
-                $logStmt->execute([
-                    $_SESSION['user_id'],
-                    "Purchase order status updated: {$po['po_number']} to $new_status",
-                    $activity_data
-                ]);
-                
-                $pdo->commit();
-                $_SESSION['success_message'] = "Purchase order status updated successfully.";
-            }
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            $_SESSION['error_message'] = "Error updating status: " . $e->getMessage();
-            error_log("Status update error: " . $e->getMessage());
-        }
-    }
-    header("Location: purchase-orders.php?" . http_build_query($_GET));
-    exit();
-}
-
 // Handle delete action
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $po_id = (int)$_GET['id'];
@@ -93,20 +39,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
         $pdo->beginTransaction();
         
         // Get PO details for logging
-        $poStmt = $pdo->prepare("SELECT po_number, supplier_id, total_amount FROM purchase_orders WHERE id = ?");
+        $poStmt = $pdo->prepare("SELECT po_number, supplier_id, total_amount, status FROM purchase_orders WHERE id = ?");
         $poStmt->execute([$po_id]);
         $po = $poStmt->fetch();
         
         if ($po) {
-            // Check if PO can be deleted (only draft or cancelled)
-            $statusCheck = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
-            $statusCheck->execute([$po_id]);
-            $status = $statusCheck->fetchColumn();
-            
-            if (!in_array($status, ['draft', 'cancelled'])) {
-                throw new Exception("Only draft or cancelled orders can be deleted.");
-            }
-            
+            // Allow deletion for any status - REMOVED THE RESTRICTION
             // Delete items first
             $deleteItems = $pdo->prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
             $deleteItems->execute([$po_id]);
@@ -115,27 +53,35 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
             $deletePO = $pdo->prepare("DELETE FROM purchase_orders WHERE id = ?");
             $deletePO->execute([$po_id]);
             
-            // Log activity
-            $logStmt = $pdo->prepare("
-                INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                VALUES (?, 5, ?, ?, NOW())
-            ");
-            
-            $activity_data = json_encode([
-                'po_id' => $po_id,
-                'po_number' => $po['po_number'],
-                'supplier_id' => $po['supplier_id'],
-                'total_amount' => $po['total_amount']
-            ]);
-            
-            $logStmt->execute([
-                $_SESSION['user_id'],
-                "Purchase order deleted: " . $po['po_number'],
-                $activity_data
-            ]);
+            // Log activity if activity_logs table exists
+            try {
+                $logStmt = $pdo->prepare("
+                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by, created_at)
+                    VALUES (?, 5, ?, ?, ?, NOW())
+                ");
+                
+                $activity_data = json_encode([
+                    'po_id' => $po_id,
+                    'po_number' => $po['po_number'],
+                    'supplier_id' => $po['supplier_id'],
+                    'total_amount' => $po['total_amount']
+                ]);
+                
+                $logStmt->execute([
+                    $_SESSION['user_id'] ?? null,
+                    "Purchase order deleted: " . $po['po_number'],
+                    $activity_data,
+                    $_SESSION['user_id'] ?? null
+                ]);
+            } catch (Exception $logError) {
+                // Log table might not exist, continue with deletion
+                error_log("Activity log error: " . $logError->getMessage());
+            }
             
             $pdo->commit();
-            $_SESSION['success_message'] = "Purchase order deleted successfully.";
+            $_SESSION['success_message'] = "Purchase order " . $po['po_number'] . " deleted successfully.";
+        } else {
+            throw new Exception("Purchase order not found.");
         }
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -143,7 +89,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
         error_log("Delete error: " . $e->getMessage());
     }
     
-    header("Location: purchase-orders.php?" . http_build_query($_GET));
+    // Redirect without action and id parameters to prevent accidental re-deletion
+    $redirect_params = $_GET;
+    unset($redirect_params['action']);
+    unset($redirect_params['id']);
+    header("Location: purchase-orders.php?" . http_build_query($redirect_params));
     exit();
 }
 
@@ -191,9 +141,9 @@ if (!empty($filter_supplier)) {
 
 // Apply status filter
 if (!empty($filter_status)) {
-    $query .= " AND po.status = :status";
-    $count_query .= " AND po.status = :status";
-    $params[':status'] = $filter_status;
+    $query .= " AND LOWER(po.status) = :status";
+    $count_query .= " AND LOWER(po.status) = :status";
+    $params[':status'] = strtolower($filter_status);
 }
 
 // Apply search
@@ -204,22 +154,33 @@ if (!empty($search)) {
 }
 
 // Get total records for pagination
-$countStmt = $pdo->prepare($count_query);
-$countStmt->execute($params);
-$total_records = $countStmt->fetchColumn();
-$total_pages = ceil($total_records / $records_per_page);
+try {
+    $countStmt = $pdo->prepare($count_query);
+    $countStmt->execute($params);
+    $total_records = $countStmt->fetchColumn();
+    $total_pages = ceil($total_records / $records_per_page);
+} catch (Exception $e) {
+    $total_records = 0;
+    $total_pages = 1;
+    error_log("Count query error: " . $e->getMessage());
+}
 
 // Get purchase orders for current page
-$query .= " ORDER BY po.order_date DESC, po.created_at DESC LIMIT :offset, :limit";
-
-$stmt = $pdo->prepare($query);
-foreach ($params as $key => $value) {
-    $stmt->bindValue($key, $value);
+try {
+    $query .= " ORDER BY po.order_date DESC, po.created_at DESC LIMIT :offset, :limit";
+    
+    $stmt = $pdo->prepare($query);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->bindValue(':limit', $records_per_page, PDO::PARAM_INT);
+    $stmt->execute();
+    $purchase_orders = $stmt->fetchAll();
+} catch (Exception $e) {
+    $purchase_orders = [];
+    error_log("Query error: " . $e->getMessage());
 }
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-$stmt->bindValue(':limit', $records_per_page, PDO::PARAM_INT);
-$stmt->execute();
-$purchase_orders = $stmt->fetchAll();
 
 // Get summary statistics
 $summary_query = "
@@ -227,12 +188,12 @@ $summary_query = "
         COUNT(*) as total_orders,
         COALESCE(SUM(total_amount), 0) as total_amount,
         COALESCE(AVG(total_amount), 0) as avg_amount,
-        SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count,
-        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_count,
-        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_count,
-        SUM(CASE WHEN status = 'partially_received' THEN 1 ELSE 0 END) as partially_received_count,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count
+        SUM(CASE WHEN LOWER(status) = 'draft' THEN 1 ELSE 0 END) as draft_count,
+        SUM(CASE WHEN LOWER(status) = 'sent' THEN 1 ELSE 0 END) as sent_count,
+        SUM(CASE WHEN LOWER(status) = 'confirmed' THEN 1 ELSE 0 END) as confirmed_count,
+        SUM(CASE WHEN LOWER(status) = 'partially_received' OR LOWER(status) = 'partial' THEN 1 ELSE 0 END) as partially_received_count,
+        SUM(CASE WHEN LOWER(status) = 'completed' OR LOWER(status) = 'complete' THEN 1 ELSE 0 END) as completed_count,
+        SUM(CASE WHEN LOWER(status) = 'cancelled' OR LOWER(status) = 'cancel' THEN 1 ELSE 0 END) as cancelled_count
     FROM purchase_orders po
     WHERE 1=1
 ";
@@ -251,9 +212,32 @@ if (!empty($filter_supplier)) {
     $summary_params[':supplier_id'] = $filter_supplier;
 }
 
-$summaryStmt = $pdo->prepare($summary_query);
-$summaryStmt->execute($summary_params);
-$summary = $summaryStmt->fetch();
+try {
+    $summaryStmt = $pdo->prepare($summary_query);
+    $summaryStmt->execute($summary_params);
+    $summary = $summaryStmt->fetch();
+} catch (Exception $e) {
+    $summary = [
+        'total_orders' => 0,
+        'total_amount' => 0,
+        'avg_amount' => 0,
+        'draft_count' => 0,
+        'sent_count' => 0,
+        'confirmed_count' => 0,
+        'partially_received_count' => 0,
+        'completed_count' => 0,
+        'cancelled_count' => 0
+    ];
+    error_log("Summary query error: " . $e->getMessage());
+}
+
+// Debug: Get distinct status values
+try {
+    $debugStmt = $pdo->query("SELECT DISTINCT LOWER(status) as status FROM purchase_orders");
+    $statuses = $debugStmt->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) {
+    $statuses = [];
+}
 
 // Check for session messages
 $success_message = isset($_SESSION['success_message']) ? $_SESSION['success_message'] : '';
@@ -273,6 +257,8 @@ unset($_SESSION['error_message']);
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
         .status-badge {
             padding: 6px 12px;
@@ -322,6 +308,43 @@ unset($_SESSION['error_message']);
         }
         .select2-container--default .select2-selection--single .select2-selection__arrow {
             height: 36px;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-action {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .btn-action:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .btn-view { background-color: #e7f5ff; color: #0d6efd; border: 1px solid #b8daff; }
+        .btn-edit { background-color: #fff3cd; color: #856404; border: 1px solid #ffe69c; }
+        .btn-delete { background-color: #f8d7da; color: #dc3545; border: 1px solid #f5c2c7; }
+        
+        .btn-view:hover { background-color: #0d6efd; color: white; }
+        .btn-edit:hover { background-color: #856404; color: white; }
+        .btn-delete:hover { background-color: #dc3545; color: white; }
+        
+        /* Make sure delete button is always visible */
+        .btn-delete {
+            display: inline-flex !important;
         }
     </style>
 </head>
@@ -392,6 +415,11 @@ unset($_SESSION['error_message']);
                     </div>
                 </div>
                 <?php endif; ?>
+
+                <!-- Debug Info (Hidden by default) -->
+                <div class="debug-info" style="display: none; background: #f8f9fa; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+                    <strong>Debug:</strong> Status values in DB: <?= json_encode($statuses) ?>
+                </div>
 
                 <!-- Action Buttons -->
                 <div class="row">
@@ -499,46 +527,6 @@ unset($_SESSION['error_message']);
                             </div>
                         </div>
                     </div>
-                    <div class="col-xl-3 col-md-6">
-                        <div class="card summary-card" onclick="filterByStatus('partially_received')">
-                            <div class="card-body">
-                                <div class="d-flex align-items-center">
-                                    <div class="flex-shrink-0 me-3">
-                                        <div class="avatar-sm">
-                                            <span class="avatar-title bg-soft-warning text-warning rounded-circle">
-                                                <i class="mdi mdi-truck-fast font-size-24"></i>
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <p class="text-muted mb-2">Partially Received</p>
-                                        <h4><?= number_format($summary['partially_received_count'] ?? 0) ?></h4>
-                                        <small class="text-muted">Some items received</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-xl-3 col-md-6">
-                        <div class="card summary-card" onclick="filterByStatus('completed')">
-                            <div class="card-body">
-                                <div class="d-flex align-items-center">
-                                    <div class="flex-shrink-0 me-3">
-                                        <div class="avatar-sm">
-                                            <span class="avatar-title bg-soft-success text-success rounded-circle">
-                                                <i class="mdi mdi-check-all font-size-24"></i>
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <p class="text-muted mb-2">Completed</p>
-                                        <h4><?= number_format($summary['completed_count'] ?? 0) ?></h4>
-                                        <small class="text-muted">Fully received</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
                 <!-- end statistics cards -->
 
@@ -572,12 +560,12 @@ unset($_SESSION['error_message']);
                                         <label class="form-label">Status</label>
                                         <select class="form-control" name="filter_status">
                                             <option value="">All Status</option>
-                                            <option value="draft" <?= $filter_status == 'draft' ? 'selected' : '' ?>>Draft</option>
-                                            <option value="sent" <?= $filter_status == 'sent' ? 'selected' : '' ?>>Sent</option>
-                                            <option value="confirmed" <?= $filter_status == 'confirmed' ? 'selected' : '' ?>>Confirmed</option>
-                                            <option value="partially_received" <?= $filter_status == 'partially_received' ? 'selected' : '' ?>>Partially Received</option>
-                                            <option value="completed" <?= $filter_status == 'completed' ? 'selected' : '' ?>>Completed</option>
-                                            <option value="cancelled" <?= $filter_status == 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
+                                            <option value="draft" <?= strtolower($filter_status) == 'draft' ? 'selected' : '' ?>>Draft</option>
+                                            <option value="sent" <?= strtolower($filter_status) == 'sent' ? 'selected' : '' ?>>Sent</option>
+                                            <option value="confirmed" <?= strtolower($filter_status) == 'confirmed' ? 'selected' : '' ?>>Confirmed</option>
+                                            <option value="partially_received" <?= strtolower($filter_status) == 'partially_received' ? 'selected' : '' ?>>Partially Received</option>
+                                            <option value="completed" <?= strtolower($filter_status) == 'completed' ? 'selected' : '' ?>>Completed</option>
+                                            <option value="cancelled" <?= strtolower($filter_status) == 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
                                         </select>
                                     </div>
                                     <div class="col-md-2">
@@ -672,7 +660,10 @@ unset($_SESSION['error_message']);
                                                 </td>
                                             </tr>
                                             <?php else: ?>
-                                                <?php foreach ($purchase_orders as $po): ?>
+                                                <?php foreach ($purchase_orders as $po): 
+                                                    $current_status = strtolower(trim($po['status']));
+                                                    $editable_statuses = ['draft', 'sent'];
+                                                ?>
                                                 <tr>
                                                     <td>
                                                         <strong>
@@ -707,13 +698,17 @@ unset($_SESSION['error_message']);
                                                     <td>
                                                         <?php
                                                         $status_class = '';
-                                                        switch($po['status']) {
+                                                        switch($current_status) {
                                                             case 'draft': $status_class = 'status-draft'; break;
                                                             case 'sent': $status_class = 'status-sent'; break;
                                                             case 'confirmed': $status_class = 'status-confirmed'; break;
-                                                            case 'partially_received': $status_class = 'status-partially_received'; break;
-                                                            case 'completed': $status_class = 'status-completed'; break;
-                                                            case 'cancelled': $status_class = 'status-cancelled'; break;
+                                                            case 'partially_received':
+                                                            case 'partial': $status_class = 'status-partially_received'; break;
+                                                            case 'completed':
+                                                            case 'complete': $status_class = 'status-completed'; break;
+                                                            case 'cancelled':
+                                                            case 'cancel': $status_class = 'status-cancelled'; break;
+                                                            default: $status_class = 'status-draft';
                                                         }
                                                         ?>
                                                         <span class="status-badge <?= $status_class ?>">
@@ -727,58 +722,39 @@ unset($_SESSION['error_message']);
                                                         </small>
                                                     </td>
                                                     <td>
-                                                        <div class="btn-group" role="group">
+                                                        <div class="action-buttons">
+                                                            <!-- View Action - Always Visible -->
                                                             <a href="view-purchase-order.php?id=<?= $po['id'] ?>" 
-                                                               class="btn btn-sm btn-soft-primary" 
+                                                               class="btn-action btn-view" 
                                                                title="View Details"
                                                                data-bs-toggle="tooltip">
                                                                 <i class="mdi mdi-eye"></i>
                                                             </a>
                                                             
-                                                            <?php if ($po['status'] == 'draft'): ?>
+                                                            <!-- Edit Action - Show for draft and sent status -->
+                                                            <?php if (in_array($current_status, $editable_statuses)): ?>
                                                             <a href="edit-purchase-order.php?id=<?= $po['id'] ?>" 
-                                                               class="btn btn-sm btn-soft-info" 
+                                                               class="btn-action btn-edit" 
                                                                title="Edit"
                                                                data-bs-toggle="tooltip">
                                                                 <i class="mdi mdi-pencil"></i>
                                                             </a>
-                                                            <button type="button" 
-                                                                    class="btn btn-sm btn-soft-success" 
-                                                                    title="Send to Supplier"
-                                                                    data-bs-toggle="tooltip"
-                                                                    onclick="updateStatus(<?= $po['id'] ?>, 'sent')">
-                                                                <i class="mdi mdi-send"></i>
-                                                            </button>
+                                                            <?php else: ?>
+                                                            <span class="d-inline-block" tabindex="0" data-bs-toggle="tooltip" title="Cannot edit - Status: <?= $current_status ?>">
+                                                                <button type="button" class="btn-action btn-secondary" style="opacity: 0.5; cursor: not-allowed;" disabled>
+                                                                    <i class="mdi mdi-pencil"></i>
+                                                                </button>
+                                                            </span>
                                                             <?php endif; ?>
                                                             
-                                                            <?php if ($po['status'] == 'sent'): ?>
+                                                            <!-- Delete Action - ALWAYS VISIBLE for all statuses -->
                                                             <button type="button" 
-                                                                    class="btn btn-sm btn-soft-info" 
-                                                                    title="Confirm Order"
+                                                                    class="btn-action btn-delete" 
+                                                                    title="Delete Purchase Order"
                                                                     data-bs-toggle="tooltip"
-                                                                    onclick="updateStatus(<?= $po['id'] ?>, 'confirmed')">
-                                                                <i class="mdi mdi-check-circle"></i>
-                                                            </button>
-                                                            <?php endif; ?>
-                                                            
-                                                            <?php if (in_array($po['status'], ['confirmed', 'partially_received'])): ?>
-                                                            <a href="receive-purchase.php?id=<?= $po['id'] ?>" 
-                                                               class="btn btn-sm btn-soft-warning" 
-                                                               title="Receive Items"
-                                                               data-bs-toggle="tooltip">
-                                                                <i class="mdi mdi-truck"></i>
-                                                            </a>
-                                                            <?php endif; ?>
-                                                            
-                                                            <?php if ($po['status'] == 'draft'): ?>
-                                                            <button type="button" 
-                                                                    class="btn btn-sm btn-soft-danger" 
-                                                                    title="Delete"
-                                                                    data-bs-toggle="tooltip"
-                                                                    onclick="deletePO(<?= $po['id'] ?>, '<?= htmlspecialchars($po['po_number']) ?>')">
+                                                                    onclick="deletePO(<?= $po['id'] ?>, '<?= htmlspecialchars(addslashes($po['po_number'])) ?>', '<?= $current_status ?>')">
                                                                 <i class="mdi mdi-delete"></i>
                                                             </button>
-                                                            <?php endif; ?>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -856,9 +832,11 @@ unset($_SESSION['error_message']);
 
 <script>
     // Initialize tooltips
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
+    document.addEventListener('DOMContentLoaded', function() {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
     });
 
     // Initialize Select2
@@ -867,6 +845,11 @@ unset($_SESSION['error_message']);
             width: '100%',
             placeholder: 'Select option'
         });
+        
+        // Display debug info in console
+        <?php if (!empty($statuses)): ?>
+        console.log('Status values in DB:', <?= json_encode($statuses) ?>);
+        <?php endif; ?>
     });
 
     // Filter by status
@@ -881,64 +864,38 @@ unset($_SESSION['error_message']);
         window.location.href = url.toString();
     }
 
-    // Update status function
-    function updateStatus(poId, newStatus) {
-        let title, text, icon;
+    // Delete PO function - Now with warning about consequences
+    function deletePO(poId, poNumber, status) {
+        let warningMessage = `Are you sure you want to delete <strong>${poNumber}</strong>?`;
         
-        switch(newStatus) {
-            case 'sent':
-                title = 'Send Purchase Order?';
-                text = 'This will mark the PO as sent to supplier. Continue?';
-                icon = 'question';
-                break;
-            case 'confirmed':
-                title = 'Confirm Purchase Order?';
-                text = 'Mark this PO as confirmed by supplier. Continue?';
-                icon = 'info';
-                break;
-            default:
-                title = 'Update Status?';
-                text = 'Are you sure you want to update this PO status?';
-                icon = 'warning';
+        // Add status-specific warnings
+        if (status !== 'draft' && status !== 'cancelled' && status !== 'cancel') {
+            warningMessage += `<br><br><span style="color: #dc3545;"> </span>`;
         }
         
         Swal.fire({
-            title: title,
-            text: text,
-            icon: icon,
-            showCancelButton: true,
-            confirmButtonColor: '#556ee6',
-            cancelButtonColor: '#f46a6a',
-            confirmButtonText: 'Yes, proceed!'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('action', 'update_status');
-                currentUrl.searchParams.set('id', poId);
-                currentUrl.searchParams.set('status', newStatus);
-                currentUrl.searchParams.set('old_status', '<?= $po['status'] ?? '' ?>');
-                window.location.href = currentUrl.toString();
-            }
-        });
-    }
-
-    // Delete PO function
-    function deletePO(poId, poNumber) {
-        Swal.fire({
             title: 'Delete Purchase Order?',
-            html: `Are you sure you want to delete <strong>${poNumber}</strong>?`,
+            html: warningMessage,
             text: "This action cannot be undone!",
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonColor: '#f46a6a',
-            cancelButtonColor: '#556ee6',
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#3085d6',
             confirmButtonText: 'Yes, delete it!',
-            cancelButtonText: 'Cancel'
-        }).then((result) => {
-            if (result.isConfirmed) {
+            cancelButtonText: 'Cancel',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                // Get current URL parameters
                 const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('action', 'delete');
-                currentUrl.searchParams.set('id', poId);
+                
+                // Remove any existing action/id parameters to avoid duplicates
+                currentUrl.searchParams.delete('action');
+                currentUrl.searchParams.delete('id');
+                
+                // Add new parameters
+                currentUrl.searchParams.append('action', 'delete');
+                currentUrl.searchParams.append('id', poId);
+                
                 window.location.href = currentUrl.toString();
             }
         });
@@ -965,17 +922,28 @@ unset($_SESSION['error_message']);
         let csv = 'PO Number,Supplier,Order Date,Expected Delivery,Items,Total Amount,Status,Created By\n';
         
         data.forEach(po => {
-            csv += `"${po.po_number}","${po.supplier_name || 'Unknown'}","${po.order_date}","${po.expected_delivery || ''}",${po.item_count},${po.total_amount},"${po.status}","${po.created_by_name || 'System'}"\n`;
+            const poNumber = (po.po_number || '').replace(/"/g, '""');
+            const supplierName = (po.supplier_name || 'Unknown').replace(/"/g, '""');
+            const orderDate = po.order_date || '';
+            const expectedDelivery = po.expected_delivery || '';
+            const itemCount = po.item_count || 0;
+            const totalAmount = po.total_amount || 0;
+            const status = (po.status || '').replace(/"/g, '""');
+            const createdBy = (po.created_by_name || 'System').replace(/"/g, '""');
+            
+            csv += `"${poNumber}","${supplierName}","${orderDate}","${expectedDelivery}",${itemCount},${totalAmount},"${status}","${createdBy}"\n`;
         });
         
         // Download CSV
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `purchase_orders_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
         
         Swal.fire({
             icon: 'success',
@@ -1003,6 +971,9 @@ unset($_SESSION['error_message']);
 function buildPaginationUrl($page) {
     $params = $_GET;
     $params['page'] = $page;
+    // Remove action and id if they exist in params (clean URLs)
+    unset($params['action']);
+    unset($params['id']);
     return 'purchase-orders.php?' . http_build_query($params);
 }
 ?>

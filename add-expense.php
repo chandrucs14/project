@@ -75,35 +75,58 @@ try {
     error_log("Error fetching GST details: " . $e->getMessage());
 }
 
-// Generate unique expense number
+// Generate unique expense number - FIXED VERSION
 function generateExpenseNumber($pdo) {
     $prefix = 'EXP';
     $year = date('y');
     $month = date('m');
+    $base_pattern = $prefix . $year . $month;
     
     try {
-        // Get the last expense number for current month
+        // Get the maximum sequence number for current month
         $stmt = $pdo->prepare("
-            SELECT expense_number FROM expenses 
-            WHERE expense_number LIKE :pattern 
-            ORDER BY id DESC LIMIT 1
+            SELECT MAX(CAST(SUBSTRING(expense_number, -4) AS UNSIGNED)) as max_seq 
+            FROM expenses 
+            WHERE expense_number LIKE :pattern
         ");
-        $pattern = $prefix . $year . $month . '%';
+        $pattern = $base_pattern . '%';
         $stmt->execute([':pattern' => $pattern]);
-        $lastExpense = $stmt->fetch();
+        $result = $stmt->fetch();
         
-        if ($lastExpense) {
-            // Extract the sequence number and increment
-            $lastNumber = intval(substr($lastExpense['expense_number'], -4));
-            $newNumber = $lastNumber + 1;
-        } else {
-            $newNumber = 1;
+        $sequence = ($result && $result['max_seq']) ? intval($result['max_seq']) + 1 : 1;
+        
+        // Ensure sequence is within 4 digits
+        if ($sequence > 9999) {
+            // If sequence exceeds 9999, reset or use different approach
+            $sequence = 1;
         }
         
-        return $prefix . $year . $month . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
+        $expense_number = $base_pattern . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+        
+        // Double-check if this number already exists (prevent race conditions)
+        $checkStmt = $pdo->prepare("SELECT id FROM expenses WHERE expense_number = :expense_number");
+        $checkStmt->execute([':expense_number' => $expense_number]);
+        
+        // If it exists, increment until we find a unique one
+        $attempts = 0;
+        while ($checkStmt->fetch() && $attempts < 100) {
+            $sequence++;
+            if ($sequence > 9999) {
+                // If we exceed 9999, add a random suffix
+                $expense_number = $base_pattern . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+            } else {
+                $expense_number = $base_pattern . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+            }
+            $checkStmt->execute([':expense_number' => $expense_number]);
+            $attempts++;
+        }
+        
+        return $expense_number;
+        
     } catch (Exception $e) {
-        // Fallback to timestamp-based number
-        return $prefix . $year . $month . date('d') . rand(100, 999);
+        error_log("Error generating expense number: " . $e->getMessage());
+        // Fallback to timestamp + random number
+        return $prefix . $year . $month . date('d') . str_pad(rand(1, 999), 3, '0', STR_PAD_LEFT);
     }
 }
 
@@ -111,11 +134,6 @@ $expense['expense_number'] = generateExpenseNumber($pdo);
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-    // Validate CSRF token (if you implement CSRF protection)
-    // if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-    //     die('CSRF token validation failed');
-    // }
     
     // Get form data
     $expense['expense_number'] = $_POST['expense_number'] ?? $expense['expense_number'];
@@ -158,6 +176,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         try {
             $pdo->beginTransaction();
+            
+            // Generate a new expense number if the current one already exists
+            $checkStmt = $pdo->prepare("SELECT id FROM expenses WHERE expense_number = ?");
+            $checkStmt->execute([$expense['expense_number']]);
+            
+            // Keep generating new numbers until we find a unique one
+            $attempts = 0;
+            while ($checkStmt->fetch() && $attempts < 10) {
+                // Generate a new expense number with random suffix
+                $expense['expense_number'] = generateExpenseNumber($pdo);
+                $checkStmt->execute([$expense['expense_number']]);
+                $attempts++;
+            }
             
             // Calculate total amount if not provided but GST is applied
             if (empty($expense['total_amount']) && !empty($expense['gst_id']) && !empty($expense['gst_amount'])) {
@@ -224,12 +255,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success_message = "Expense recorded successfully! Expense #: " . $expense['expense_number'];
             
             // Reset form for new entry
-            if (!isset($_POST['save_and_new'])) {
-                // Redirect to view expense page
-                header("Location: view-expense.php?id=" . $expense_id);
-                exit();
-            } else {
-                // Reset form for new entry
+            if (isset($_POST['save_and_new'])) {
+                // Generate new expense number
                 $expense = [
                     'expense_number' => generateExpenseNumber($pdo),
                     'expense_date' => date('Y-m-d'),
@@ -245,13 +272,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'total_amount' => '',
                     'notes' => ''
                 ];
+                
+                // Redirect to prevent form resubmission
+                header("Location: add-expense.php?success=1&new=1");
+                exit();
+            } else {
+                // Redirect to view expense page
+                header("Location: view-expense.php?id=" . $expense_id);
+                exit();
             }
             
         } catch (Exception $e) {
             $pdo->rollBack();
-            $errors['database'] = "Failed to save expense: " . $e->getMessage();
+            
+            // Check for duplicate entry error
+            if ($e->errorInfo[1] == 1062) { // MySQL duplicate entry error code
+                // Try one more time with a completely new number
+                $expense['expense_number'] = 'EXP' . date('y') . date('m') . date('d') . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+                
+                // Store error for user
+                $errors['database'] = "Duplicate expense number detected. Please try submitting again. A new number has been generated.";
+            } else {
+                $errors['database'] = "Failed to save expense: " . $e->getMessage();
+            }
+            
             error_log("Expense insertion error: " . $e->getMessage());
         }
+    }
+}
+
+// Handle success message from redirect
+if (isset($_GET['success']) && $_GET['success'] == 1) {
+    if (isset($_GET['new']) && $_GET['new'] == 1) {
+        $success_message = "Expense saved successfully! You can add another expense.";
     }
 }
 
@@ -268,15 +321,13 @@ function updateDaywiseAmounts($pdo, $expense) {
             if ($expense['payment_method'] == 'cash') {
                 $updateStmt = $pdo->prepare("
                     UPDATE daywise_amounts 
-                    SET expenses_cash = expenses_cash + :amount,
-                        closing_cash = opening_cash + cash_sales + cash_received - (cash_purchases + expenses_cash + :amount + cash_paid)
+                    SET expenses_cash = expenses_cash + :amount
                     WHERE id = :id
                 ");
             } else {
                 $updateStmt = $pdo->prepare("
                     UPDATE daywise_amounts 
-                    SET expenses_bank = expenses_bank + :amount,
-                        closing_bank = opening_bank + credit_sales + bank_deposits - (credit_purchases + expenses_bank + :amount + bank_withdrawals)
+                    SET expenses_bank = expenses_bank + :amount
                     WHERE id = :id
                 ");
             }
@@ -285,41 +336,48 @@ function updateDaywiseAmounts($pdo, $expense) {
                 ':id' => $existing['id']
             ]);
         } else {
-            // Create new daywise record
+            // Get previous day's closing balance
+            $prevDate = date('Y-m-d', strtotime($expense['expense_date'] . ' -1 day'));
+            $prevStmt = $pdo->prepare("SELECT closing_cash, closing_bank FROM daywise_amounts WHERE amount_date = ?");
+            $prevStmt->execute([$prevDate]);
+            $prev = $prevStmt->fetch();
+            
+            $opening_cash = $prev ? floatval($prev['closing_cash']) : 0;
+            $opening_bank = $prev ? floatval($prev['closing_bank']) : 0;
+            
+            // Insert new record
             $insertStmt = $pdo->prepare("
                 INSERT INTO daywise_amounts (
-                    amount_date, 
-                    opening_cash, opening_bank,
+                    amount_date, opening_cash, opening_bank,
                     cash_sales, credit_sales,
                     cash_purchases, credit_purchases,
                     expenses_cash, expenses_bank,
                     cash_received, cash_paid,
                     bank_deposits, bank_withdrawals,
                     closing_cash, closing_bank,
-                    created_by
+                    created_by, created_at
                 ) VALUES (
-                    :amount_date,
-                    (SELECT COALESCE(closing_cash, 0) FROM daywise_amounts WHERE amount_date = DATE_SUB(:amount_date, INTERVAL 1 DAY)),
-                    (SELECT COALESCE(closing_bank, 0) FROM daywise_amounts WHERE amount_date = DATE_SUB(:amount_date, INTERVAL 1 DAY)),
-                    0, 0, 0, 0,
+                    :amount_date, :opening_cash, :opening_bank,
+                    0, 0,
+                    0, 0,
                     :expenses_cash, :expenses_bank,
-                    0, 0, 0, 0,
+                    0, 0,
+                    0, 0,
                     :closing_cash, :closing_bank,
-                    :created_by
+                    :created_by, NOW()
                 )
             ");
             
-            $opening_cash = getPreviousDayClosing($pdo, $expense['expense_date'], 'cash');
-            $opening_bank = getPreviousDayClosing($pdo, $expense['expense_date'], 'bank');
-            
             $expenses_cash = ($expense['payment_method'] == 'cash') ? $expense['total_amount'] : 0;
-            $expenses_bank = ($expense['payment_method'] == 'bank' || $expense['payment_method'] == 'cheque' || $expense['payment_method'] == 'online') ? $expense['total_amount'] : 0;
+            $expenses_bank = ($expense['payment_method'] != 'cash') ? $expense['total_amount'] : 0;
             
             $closing_cash = $opening_cash - $expenses_cash;
             $closing_bank = $opening_bank - $expenses_bank;
             
             $insertStmt->execute([
                 ':amount_date' => $expense['expense_date'],
+                ':opening_cash' => $opening_cash,
+                ':opening_bank' => $opening_bank,
                 ':expenses_cash' => $expenses_cash,
                 ':expenses_bank' => $expenses_bank,
                 ':closing_cash' => $closing_cash,
@@ -330,19 +388,6 @@ function updateDaywiseAmounts($pdo, $expense) {
     } catch (Exception $e) {
         error_log("Daywise amounts update error: " . $e->getMessage());
         // Don't throw exception - non-critical feature
-    }
-}
-
-// Helper function to get previous day's closing balance
-function getPreviousDayClosing($pdo, $date, $type) {
-    try {
-        $prevDate = date('Y-m-d', strtotime($date . ' -1 day'));
-        $stmt = $pdo->prepare("SELECT closing_{$type} FROM daywise_amounts WHERE amount_date = :date");
-        $stmt->execute([':date' => $prevDate]);
-        $result = $stmt->fetch();
-        return $result ? $result['closing_' . $type] : 0;
-    } catch (Exception $e) {
-        return 0;
     }
 }
 
@@ -364,6 +409,15 @@ try {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Select2 CSS -->
+    <link href="assets/libs/select2/css/select2.min.css" rel="stylesheet" type="text/css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
 
 <body data-sidebar="dark">
 
@@ -400,7 +454,7 @@ try {
                             <div class="page-title-right">
                                 <ol class="breadcrumb m-0">
                                     <li class="breadcrumb-item"><a href="index.php">Dashboard</a></li>
-                                    <li class="breadcrumb-item"><a href="javascript: void(0);">Expenses</a></li>
+                                    <li class="breadcrumb-item"><a href="manage-expenses.php">Expenses</a></li>
                                     <li class="breadcrumb-item active">Add Expense</li>
                                 </ol>
                             </div>
@@ -446,7 +500,7 @@ try {
                                                 <label for="expense_number" class="form-label">Expense Number</label>
                                                 <input type="text" class="form-control" id="expense_number" name="expense_number" 
                                                        value="<?= htmlspecialchars($expense['expense_number']) ?>" readonly>
-                                                <small class="text-muted">Auto-generated</small>
+                                                <small class="text-muted">Auto-generated (Format: EXPYYMMXXXX)</small>
                                             </div>
                                         </div>
                                         <div class="col-md-6">
@@ -525,7 +579,7 @@ try {
                                                     <?php foreach ($gstDetails as $gst): ?>
                                                     <option value="<?= $gst['id'] ?>" data-rate="<?= $gst['gst_rate'] ?>" 
                                                             <?= $expense['gst_id'] == $gst['id'] ? 'selected' : '' ?>>
-                                                        <?= htmlspecialchars($gst['gst_rate']) ?>% - <?= htmlspecialchars($gst['hsn_code']) ?>
+                                                        <?= htmlspecialchars($gst['gst_rate']) ?>% - <?= htmlspecialchars($gst['hsn_code'] ?? '') ?>
                                                     </option>
                                                     <?php endforeach; ?>
                                                 </select>
@@ -614,7 +668,7 @@ try {
                                             <a href="manage-expenses.php" class="btn btn-secondary">
                                                 <i class="mdi mdi-arrow-left"></i> Cancel
                                             </a>
-                                            <button type="reset" class="btn btn-light">
+                                            <button type="button" class="btn btn-light" id="resetBtn">
                                                 <i class="mdi mdi-refresh"></i> Reset
                                             </button>
                                         </div>
@@ -658,6 +712,17 @@ try {
                                     <p class="text-muted small">
                                         If you select a GST rate, the GST amount and total amount will be automatically calculated.
                                         Input-credit will be available for eligible expenses.
+                                    </p>
+                                </div>
+                                
+                                <div class="mt-3">
+                                    <h5 class="font-size-14">Expense Number Format:</h5>
+                                    <p class="text-muted small">
+                                        <strong>EXPYYMMXXXX</strong><br>
+                                        EXP: Prefix<br>
+                                        YY: Last two digits of year<br>
+                                        MM: Month (01-12)<br>
+                                        XXXX: Sequential number (0001-9999)
                                     </p>
                                 </div>
                             </div>
@@ -761,11 +826,42 @@ try {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- Select2 JS -->
+<script src="assets/libs/select2/js/select2.min.js"></script>
+
 <script>
     // Initialize tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
+    // Initialize Select2 for better dropdown experience
+    $(document).ready(function() {
+        $('#category').select2({
+            placeholder: 'Select Category',
+            width: '100%'
+        });
+        
+        $('#supplier_id').select2({
+            placeholder: 'Select Supplier/Vendor',
+            width: '100%',
+            allowClear: true
+        });
+        
+        $('#vehicle_id').select2({
+            placeholder: 'Select Vehicle',
+            width: '100%',
+            allowClear: true
+        });
+        
+        $('#gst_id').select2({
+            placeholder: 'Select GST Rate',
+            width: '100%',
+            allowClear: true
+        });
     });
 
     // GST Calculation
@@ -796,7 +892,12 @@ try {
         
         if (amount <= 0) {
             e.preventDefault();
-            alert('Please enter a valid amount greater than 0');
+            Swal.fire({
+                icon: 'error',
+                title: 'Invalid Amount',
+                text: 'Please enter a valid amount greater than 0',
+                confirmButtonColor: '#556ee6'
+            });
             document.getElementById('amount').focus();
             return false;
         }
@@ -804,7 +905,12 @@ try {
         var category = document.getElementById('category').value;
         if (!category) {
             e.preventDefault();
-            alert('Please select a category');
+            Swal.fire({
+                icon: 'error',
+                title: 'Category Required',
+                text: 'Please select a category',
+                confirmButtonColor: '#556ee6'
+            });
             document.getElementById('category').focus();
             return false;
         }
@@ -817,20 +923,46 @@ try {
         var alerts = document.querySelectorAll('.alert');
         alerts.forEach(function(alert) {
             var bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
         });
-    }, 5000);
+    }, 100);
 
     // Reset button handler
-    document.querySelector('button[type="reset"]').addEventListener('click', function(e) {
+    document.getElementById('resetBtn').addEventListener('click', function(e) {
         e.preventDefault();
-        if (confirm('Are you sure you want to reset the form?')) {
-            document.getElementById('expenseForm').reset();
-            document.getElementById('expense_date').value = '<?= date('Y-m-d') ?>';
-            document.getElementById('payment_method').value = 'cash';
-            document.getElementById('gst_amount').value = '';
-            document.getElementById('total_amount').value = '';
-        }
+        Swal.fire({
+            title: 'Reset Form',
+            text: 'Are you sure you want to reset the form?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#556ee6',
+            cancelButtonColor: '#f46a6a',
+            confirmButtonText: 'Yes, reset it!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('expenseForm').reset();
+                document.getElementById('expense_date').value = '<?= date('Y-m-d') ?>';
+                document.getElementById('payment_method').value = 'cash';
+                document.getElementById('gst_amount').value = '';
+                document.getElementById('total_amount').value = '';
+                
+                // Reset Select2
+                $('#category').val('').trigger('change');
+                $('#supplier_id').val('').trigger('change');
+                $('#vehicle_id').val('').trigger('change');
+                $('#gst_id').val('').trigger('change');
+                
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Reset Complete',
+                    text: 'Form has been reset successfully',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+            }
+        });
     });
 
     // Category quick select with keyboard shortcuts
@@ -852,37 +984,27 @@ try {
             }
         }
     });
-</script>
 
-<!-- Include Select2 for better dropdowns (optional) -->
-<link href="assets/libs/select2/css/select2.min.css" rel="stylesheet" type="text/css">
-<script src="assets/libs/select2/js/select2.min.js"></script>
-<script>
-    // Initialize Select2 for better dropdown experience
-    $(document).ready(function() {
-        $('#category').select2({
-            placeholder: 'Select Category',
-            width: '100%'
-        });
-        
-        $('#supplier_id').select2({
-            placeholder: 'Select Supplier/Vendor',
-            width: '100%',
-            allowClear: true
-        });
-        
-        $('#vehicle_id').select2({
-            placeholder: 'Select Vehicle',
-            width: '100%',
-            allowClear: true
-        });
-        
-        $('#gst_id').select2({
-            placeholder: 'Select GST Rate',
-            width: '100%',
-            allowClear: true
-        });
+    // Show success message with animation
+    <?php if (!empty($success_message)): ?>
+    Swal.fire({
+        icon: 'success',
+        title: 'Success!',
+        text: '<?= addslashes($success_message) ?>',
+        timer: 3000,
+        showConfirmButton: false
     });
+    <?php endif; ?>
+
+    // Show error message with animation
+    <?php if (!empty($errors['database'])): ?>
+    Swal.fire({
+        icon: 'error',
+        title: 'Error!',
+        text: '<?= addslashes($errors['database']) ?>',
+        confirmButtonColor: '#556ee6'
+    });
+    <?php endif; ?>
 </script>
 
 <style>
@@ -907,6 +1029,56 @@ try {
     .invalid-feedback.d-block {
         display: block !important;
         margin-top: 0.25rem;
+    }
+    
+    /* Loading state */
+    .btn-loading {
+        position: relative;
+        pointer-events: none;
+        opacity: 0.65;
+    }
+    
+    .btn-loading:after {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        top: 50%;
+        left: 50%;
+        margin-left: -8px;
+        margin-top: -8px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 50%;
+        border-top-color: #fff;
+        animation: spin 0.6s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .table-responsive {
+            font-size: 12px;
+        }
+    }
+    
+    /* SweetAlert2 customization */
+    .swal2-popup {
+        font-family: inherit;
+    }
+    
+    .swal2-title {
+        font-size: 1.2rem;
+    }
+    
+    .swal2-confirm {
+        background-color: #556ee6 !important;
+    }
+    
+    .swal2-cancel {
+        background-color: #f46a6a !important;
     }
 </style>
 

@@ -64,7 +64,7 @@ try {
     error_log("Error fetching GST details: " . $e->getMessage());
 }
 
-// Generate unique invoice number - FIXED VERSION
+// Generate unique invoice number - MODIFIED FOR 8 DIGIT
 function generateInvoiceNumber($pdo, $prefix) {
     try {
         // Get the last invoice number
@@ -83,15 +83,14 @@ function generateInvoiceNumber($pdo, $prefix) {
             $newNumber = 1;
         }
         
-        // Format: INV-YYYYMMDD-XXXX (where XXXX is sequential number)
-        $datePart = date('Ymd');
-        $sequentialPart = str_pad($newNumber, 4, '0', STR_PAD_LEFT);
+        // Format: INV-XXXXXXXX (8 digits)
+        $sequentialPart = str_pad($newNumber, 8, '0', STR_PAD_LEFT);
         
-        return $prefix . $datePart . '-' . $sequentialPart;
+        return $prefix . $sequentialPart;
         
     } catch (Exception $e) {
         // Fallback to timestamp-based number
-        return $prefix . date('Ymd') . '-' . rand(1000, 9999);
+        return $prefix . str_pad(rand(1, 99999999), 8, '0', STR_PAD_LEFT);
     }
 }
 
@@ -105,6 +104,8 @@ $invoice = [
     'customer_id' => '',
     'customer' => null,
     'payment_type' => 'credit',
+    'payment_status' => 'pending',
+    'paid_amount' => 0,
     'notes' => '',
     'terms' => $settings['invoice_footer_text'] ?? '',
     'subtotal' => 0,
@@ -113,7 +114,6 @@ $invoice = [
     'discount_type' => 'percentage',
     'discount_value' => 0,
     'total_amount' => 0,
-    'paid_amount' => 0,
     'outstanding_amount' => 0,
     'items' => []
 ];
@@ -177,6 +177,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $invoice['due_date'] = $_POST['due_date'] ?? '';
     $invoice['customer_id'] = intval($_POST['customer_id'] ?? 0);
     $invoice['payment_type'] = $_POST['payment_type'] ?? 'credit';
+    $invoice['payment_status'] = $_POST['payment_status'] ?? 'pending';
+    $invoice['paid_amount'] = floatval($_POST['paid_amount'] ?? 0);
     $invoice['notes'] = $_POST['notes'] ?? '';
     $invoice['terms'] = $_POST['terms'] ?? $settings['invoice_footer_text'] ?? '';
     $invoice['discount_type'] = $_POST['discount_type'] ?? 'percentage';
@@ -201,6 +203,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     if (empty($items) || count($items) === 0) {
         $errors['items'] = 'Please add at least one item to the invoice';
+    }
+    
+    // Validate paid amount doesn't exceed total
+    if ($invoice['paid_amount'] > 0 && $invoice['payment_status'] === 'paid' && $invoice['paid_amount'] < $invoice['total_amount']) {
+        $errors['paid_amount'] = 'Paid amount must equal total amount for paid status';
     }
     
     // Calculate totals
@@ -228,8 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     $invoice['total_amount'] = $subtotal + $gst_total - $invoice['discount_amount'];
-    $invoice['outstanding_amount'] = $invoice['total_amount'];
-    $invoice['paid_amount'] = 0;
+    $invoice['outstanding_amount'] = $invoice['total_amount'] - $invoice['paid_amount'];
     
     // If no errors, insert into database
     if (empty($errors)) {
@@ -243,11 +249,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Keep generating new numbers until we find a unique one
             $attempts = 0;
             while ($checkStmt->fetch() && $attempts < 10) {
-                // Generate a new invoice number with a random suffix
-                $randomSuffix = rand(100, 999);
-                $invoice['invoice_number'] = $settings['invoice_prefix'] . date('Ymd') . '-' . $randomSuffix;
+                // Generate a new invoice number with random 8 digits
+                $randomNumber = str_pad(rand(1, 99999999), 8, '0', STR_PAD_LEFT);
+                $invoice['invoice_number'] = $settings['invoice_prefix'] . $randomNumber;
                 $checkStmt->execute([$invoice['invoice_number']]);
                 $attempts++;
+            }
+            
+            // Determine status based on payment
+            $status = 'sent';
+            if ($invoice['payment_status'] === 'paid') {
+                $status = 'paid';
+            } elseif ($invoice['paid_amount'] > 0 && $invoice['paid_amount'] < $invoice['total_amount']) {
+                $status = 'partially_paid';
             }
             
             // Insert invoice
@@ -257,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     payment_type, subtotal, gst_total, discount_amount, total_amount,
                     paid_amount, outstanding_amount, notes, created_by, created_at
                 ) VALUES (
-                    :invoice_number, :customer_id, :invoice_date, :due_date, 'sent',
+                    :invoice_number, :customer_id, :invoice_date, :due_date, :status,
                     :payment_type, :subtotal, :gst_total, :discount_amount, :total_amount,
                     :paid_amount, :outstanding_amount, :notes, :created_by, NOW()
                 )
@@ -268,6 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ':customer_id' => $invoice['customer_id'],
                 ':invoice_date' => $invoice['invoice_date'],
                 ':due_date' => $invoice['due_date'],
+                ':status' => $status,
                 ':payment_type' => $invoice['payment_type'],
                 ':subtotal' => $invoice['subtotal'],
                 ':gst_total' => $invoice['gst_total'],
@@ -381,6 +396,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ]);
             }
             
+            // If payment was made, record payment transaction
+            if ($invoice['paid_amount'] > 0) {
+                $paymentStmt = $pdo->prepare("
+                    INSERT INTO customer_outstanding (
+                        customer_id, transaction_type, reference_id, transaction_date,
+                        amount, balance_after, due_date, status, created_by, created_at
+                    ) VALUES (
+                        :customer_id, 'payment', :reference_id, :transaction_date,
+                        :amount, :balance_after, NULL, 'settled', :created_by, NOW()
+                    )
+                ");
+                
+                $balanceAfter = $current_balance - $invoice['paid_amount'];
+                
+                $paymentStmt->execute([
+                    ':customer_id' => $invoice['customer_id'],
+                    ':reference_id' => $invoice_id,
+                    ':transaction_date' => $invoice['invoice_date'],
+                    ':amount' => $invoice['paid_amount'],
+                    ':balance_after' => $balanceAfter,
+                    ':created_by' => $_SESSION['user_id'] ?? null
+                ]);
+            }
+            
             // Update daywise amounts
             updateDaywiseAmounts($pdo, $invoice);
             
@@ -396,7 +435,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     'invoice_id' => $invoice_id,
                     'invoice_number' => $invoice['invoice_number'],
                     'customer_id' => $invoice['customer_id'],
-                    'total_amount' => $invoice['total_amount']
+                    'total_amount' => $invoice['total_amount'],
+                    'paid_amount' => $invoice['paid_amount'],
+                    'payment_status' => $invoice['payment_status']
                 ]),
                 ':created_by' => $_SESSION['user_id'] ?? null
             ]);
@@ -585,7 +626,7 @@ function updateDaywiseAmounts($pdo, $invoice) {
                                                 <label for="invoice_number" class="form-label">Invoice Number</label>
                                                 <input type="text" class="form-control" id="invoice_number" name="invoice_number" 
                                                        value="<?= htmlspecialchars($invoice['invoice_number']) ?>" readonly>
-                                                <small class="text-muted">Format: INV-YYYYMMDD-0001</small>
+                                                <small class="text-muted">Format: INV-XXXXXXXX (8 digits)</small>
                                             </div>
                                         </div>
                                         <div class="col-md-4">
@@ -747,6 +788,26 @@ function updateDaywiseAmounts($pdo, $invoice) {
                                         </div>
                                     </div>
 
+                                    <!-- Payment Status Section -->
+                                    <div class="mb-4">
+                                        <label class="form-label">Payment Status</label>
+                                        <select class="form-control" id="payment_status" name="payment_status">
+                                            <option value="pending" selected>Pending</option>
+                                            <option value="partial">Partial Payment</option>
+                                            <option value="paid">Paid</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Paid Amount Section (shown conditionally) -->
+                                    <div class="mb-4" id="paidAmountSection" style="display: none;">
+                                        <label class="form-label">Paid Amount (₹)</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text"><i class="bi bi-currency-rupee"></i></span>
+                                            <input type="number" class="form-control" id="paid_amount" name="paid_amount" 
+                                                   value="0" min="0" step="0.01">
+                                        </div>
+                                    </div>
+
                                     <!-- Summary Calculations -->
                                     <div class="table-responsive">
                                         <table class="table table-borderless mb-0">
@@ -766,13 +827,17 @@ function updateDaywiseAmounts($pdo, $invoice) {
                                                 <th>Total Amount:</th>
                                                 <th class="text-end" id="summaryTotal">₹0.00</th>
                                             </tr>
+                                            <tr class="border-top" id="balanceRow" style="display: none;">
+                                                <td><strong>Balance Due:</strong></td>
+                                                <td class="text-end" id="balanceDue">₹0.00</td>
+                                            </tr>
                                         </table>
                                     </div>
 
                                     <!-- Action Buttons -->
                                     <div class="d-grid gap-2 mt-4">
                                         <button type="submit" class="btn btn-primary btn-lg">
-                                            <i class="mdi mdi-content-save"></i> Create Invoice & Print
+                                            <i class="mdi mdi-content-save"></i> Create Invoice
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary" id="previewBtn">
                                             <i class="mdi mdi-eye"></i> Preview Invoice
@@ -789,7 +854,8 @@ function updateDaywiseAmounts($pdo, $invoice) {
                                             <li>Use Tab key to navigate between fields</li>
                                             <li>Press Ctrl+Enter to add new item quickly</li>
                                             <li>GST is automatically calculated based on product settings</li>
-                                            <li>Invoice will be saved and you'll be redirected to print</li>
+                                            <li>Invoice number will be 8 digits (e.g., INV-00000001)</li>
+                                            <li>Select payment status to record partial/full payments</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -920,6 +986,47 @@ function updateDaywiseAmounts($pdo, $invoice) {
 
     // Invoice items array
     let invoiceItems = [];
+
+    // Payment status change handler
+    $('#payment_status').on('change', function() {
+        const status = $(this).val();
+        const total = parseFloat($('#summaryTotal').text().replace('₹', '') || 0);
+        
+        if (status === 'paid') {
+            $('#paidAmountSection').show();
+            $('#paid_amount').val(total.toFixed(2));
+            $('#balanceRow').hide();
+        } else if (status === 'partial') {
+            $('#paidAmountSection').show();
+            $('#paid_amount').val('0');
+            $('#balanceRow').show();
+            calculateBalance();
+        } else {
+            $('#paidAmountSection').hide();
+            $('#paid_amount').val('0');
+            $('#balanceRow').hide();
+        }
+    });
+
+    // Paid amount change handler
+    $('#paid_amount').on('input', function() {
+        calculateBalance();
+    });
+
+    // Calculate balance due
+    function calculateBalance() {
+        const total = parseFloat($('#summaryTotal').text().replace('₹', '') || 0);
+        const paid = parseFloat($('#paid_amount').val()) || 0;
+        const balance = total - paid;
+        
+        $('#balanceDue').text('₹' + balance.toFixed(2));
+        
+        if (balance < 0) {
+            $('#balanceDue').addClass('text-danger');
+        } else {
+            $('#balanceDue').removeClass('text-danger');
+        }
+    }
 
     // Customer selection handler
     $('#customer_id').on('change', function() {
@@ -1094,6 +1201,16 @@ function updateDaywiseAmounts($pdo, $invoice) {
         } else {
             $('#summaryTotal').removeClass('text-danger');
         }
+        
+        // Update balance if partial payment is selected
+        if ($('#payment_status').val() === 'partial') {
+            calculateBalance();
+        }
+        
+        // If paid status is selected, update paid amount
+        if ($('#payment_status').val() === 'paid') {
+            $('#paid_amount').val(total.toFixed(2));
+        }
     }
 
     // Update hidden items input with JSON data
@@ -1157,6 +1274,33 @@ function updateDaywiseAmounts($pdo, $invoice) {
             return false;
         }
         
+        // Validate payment amounts
+        const total = parseFloat($('#summaryTotal').text().replace('₹', '') || 0);
+        const paidAmount = parseFloat($('#paid_amount').val()) || 0;
+        const paymentStatus = $('#payment_status').val();
+        
+        if (paymentStatus === 'paid' && paidAmount !== total) {
+            e.preventDefault();
+            Swal.fire({
+                icon: 'error',
+                title: 'Payment Mismatch',
+                text: 'Paid amount must equal total amount for paid status',
+                confirmButtonColor: '#556ee6'
+            });
+            return false;
+        }
+        
+        if (paymentStatus === 'partial' && (paidAmount <= 0 || paidAmount >= total)) {
+            e.preventDefault();
+            Swal.fire({
+                icon: 'error',
+                title: 'Invalid Partial Payment',
+                text: 'Partial payment amount must be greater than 0 and less than total amount',
+                confirmButtonColor: '#556ee6'
+            });
+            return false;
+        }
+        
         return true;
     });
 
@@ -1188,6 +1332,9 @@ function updateDaywiseAmounts($pdo, $invoice) {
         const dueDate = $('#due_date').val();
         const customerName = $('#customer_id option:selected').text().split(' (')[0];
         const customerGst = $('#customerGst').text();
+        const paymentStatus = $('#payment_status').val();
+        const paidAmount = parseFloat($('#paid_amount').val()) || 0;
+        const total = parseFloat($('#summaryTotal').text().replace('₹', '') || 0);
         
         let itemsHtml = '';
         let subtotal = 0;
@@ -1217,7 +1364,6 @@ function updateDaywiseAmounts($pdo, $invoice) {
         });
         
         const discountAmount = parseFloat($('#summaryDiscount').text().replace('-₹', '') || 0);
-        const total = parseFloat($('#summaryTotal').text().replace('₹', '') || 0);
         
         return `
             <div class="container-fluid">
@@ -1232,6 +1378,7 @@ function updateDaywiseAmounts($pdo, $invoice) {
                         <p class="mb-0"><strong>Invoice #:</strong> ${invoiceNumber}</p>
                         <p class="mb-0"><strong>Date:</strong> ${invoiceDate}</p>
                         <p class="mb-0"><strong>Due Date:</strong> ${dueDate}</p>
+                        <p class="mb-0"><strong>Payment Status:</strong> ${paymentStatus}</p>
                     </div>
                 </div>
                 
@@ -1274,6 +1421,16 @@ function updateDaywiseAmounts($pdo, $invoice) {
                             <td colspan="5" class="text-end"><strong>Total Amount:</strong></td>
                             <td class="text-end"><strong>₹${total.toFixed(2)}</strong></td>
                         </tr>
+                        ${paidAmount > 0 ? `
+                        <tr>
+                            <td colspan="5" class="text-end"><strong>Paid Amount:</strong></td>
+                            <td class="text-end text-success">₹${paidAmount.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td colspan="5" class="text-end"><strong>Balance Due:</strong></td>
+                            <td class="text-end text-danger"><strong>₹${(total - paidAmount).toFixed(2)}</strong></td>
+                        </tr>
+                        ` : ''}
                     </tfoot>
                 </table>
                 
@@ -1384,6 +1541,10 @@ function updateDaywiseAmounts($pdo, $invoice) {
     color: #f46a6a !important;
 }
 
+#balanceDue {
+    font-size: 1.1rem;
+}
+
 /* Product modal */
 #productList {
     max-height: 400px;
@@ -1478,6 +1639,14 @@ function updateDaywiseAmounts($pdo, $invoice) {
 #previewContent .table-bordered th,
 #previewContent .table-bordered td {
     padding: 10px;
+}
+
+/* Payment status section */
+#paidAmountSection {
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 15px;
 }
 </style>
 

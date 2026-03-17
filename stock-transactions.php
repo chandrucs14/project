@@ -195,7 +195,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id']
             WHERE st.id = :id
         ");
         $stmt->execute([':id' => $_GET['id']]);
-        $details = $stmt->fetch();
+        $details = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($details) {
             // Get reference details if available
@@ -223,7 +223,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id']
                 
                 if ($refStmt) {
                     $refStmt->execute([':id' => $details['reference_id']]);
-                    $details['reference_details'] = $refStmt->fetch();
+                    $details['reference_details'] = $refStmt->fetch(PDO::FETCH_ASSOC);
                 }
             }
             
@@ -400,6 +400,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $message = "Stock transaction added successfully!";
             $messageType = "success";
             
+            // Redirect to refresh page and show new transaction
+            header("Location: stock-transactions.php?" . http_build_query($_GET) . "&success=1");
+            exit();
+            
         } catch (Exception $e) {
             $pdo->rollBack();
             $message = "Error: " . $e->getMessage();
@@ -413,6 +417,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
 
 <body data-sidebar="dark">
 
@@ -470,6 +481,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
                 <?php endif; ?>
 
+                <?php if (isset($_GET['success']) && $_GET['success'] == 1): ?>
+                <div class="row">
+                    <div class="col-12">
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="mdi mdi-check-circle me-2"></i>
+                            Stock transaction added successfully!
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <!-- Action Buttons -->
                 <div class="row">
                     <div class="col-12">
@@ -485,6 +508,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <button type="button" class="btn btn-info" onclick="printReport()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
+                                    <button type="button" class="btn btn-secondary" onclick="refreshPage()">
+                                        <i class="mdi mdi-refresh"></i> Refresh
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -497,7 +523,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="card-title mb-4">Filter Transactions</h4>
-                                <form method="GET" action="stock-transactions.php" class="row">
+                                <form method="GET" action="stock-transactions.php" class="row" id="filterForm">
                                     <div class="col-md-2">
                                         <div class="mb-3">
                                             <label for="filter_date_from" class="form-label">From Date</label>
@@ -546,6 +572,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                                 <button type="submit" class="btn btn-primary">
                                                     <i class="mdi mdi-filter"></i>
                                                 </button>
+                                                <a href="stock-transactions.php" class="btn btn-secondary" title="Clear Filters">
+                                                    <i class="mdi mdi-close"></i>
+                                                </a>
                                             </div>
                                         </div>
                                     </div>
@@ -640,6 +669,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <!-- end summary cards -->
 
                 <!-- Transactions Chart -->
+                <?php if (!empty($trends)): ?>
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -650,6 +680,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         </div>
                     </div>
                 </div>
+                <?php endif; ?>
                 <!-- end chart -->
 
                 <!-- Transactions Table -->
@@ -754,7 +785,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                                         <small><?= htmlspecialchars($transaction['created_by_name'] ?? 'System') ?></small>
                                                     </td>
                                                     <td>
-                                                        <button class="btn btn-sm btn-soft-primary" onclick="viewTransaction(<?= $transaction['id'] ?>)">
+                                                        <button type="button" class="btn btn-sm btn-soft-primary view-transaction" data-id="<?= $transaction['id'] ?>">
                                                             <i class="mdi mdi-eye"></i>
                                                         </button>
                                                     </td>
@@ -823,7 +854,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <h5 class="modal-title" id="addTransactionModalLabel">Add Manual Stock Transaction</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form method="POST" action="stock-transactions.php">
+            <form method="POST" action="stock-transactions.php" id="addTransactionForm">
                 <div class="modal-body">
                     <input type="hidden" name="action" value="add_transaction">
                     
@@ -916,23 +947,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 <!-- View Transaction Modal -->
 <div class="modal fade" id="viewTransactionModal" tabindex="-1" aria-labelledby="viewTransactionModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="viewTransactionModalLabel">Transaction Details</h5>
+                <h5 class="modal-title" id="viewTransactionModalLabel">
+                    <i class="mdi mdi-file-document-outline me-2"></i>
+                    Transaction Details
+                </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div id="transactionDetails">
+                <div id="transactionDetails" class="p-3">
                     <div class="text-center">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
+                        <p class="mt-2 text-muted">Loading transaction details...</p>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="mdi mdi-close me-1"></i> Close
+                </button>
             </div>
         </div>
     </div>
@@ -945,81 +982,164 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- Chart JS -->
 <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
 
 <script>
     // Initialize tooltips
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
+    document.addEventListener('DOMContentLoaded', function() {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+
+        // Initialize view transaction buttons
+        initializeViewButtons();
+        
+        // Auto-calculate total value in add form
+        setupCalculation();
     });
 
-    // Auto-calculate total value
-    document.getElementById('quantity').addEventListener('input', calculateTotal);
-    document.getElementById('unit_price').addEventListener('input', calculateTotal);
+    // Setup calculation for add transaction form
+    function setupCalculation() {
+        const quantityInput = document.getElementById('quantity');
+        const unitPriceInput = document.getElementById('unit_price');
+        const totalValueInput = document.getElementById('total_value');
 
-    function calculateTotal() {
-        var quantity = parseFloat(document.getElementById('quantity').value) || 0;
-        var unitPrice = parseFloat(document.getElementById('unit_price').value) || 0;
-        var total = quantity * unitPrice;
-        document.getElementById('total_value').value = total.toFixed(2);
+        if (quantityInput && unitPriceInput && totalValueInput) {
+            function calculateTotal() {
+                const quantity = parseFloat(quantityInput.value) || 0;
+                const unitPrice = parseFloat(unitPriceInput.value) || 0;
+                const total = quantity * unitPrice;
+                totalValueInput.value = total.toFixed(2);
+            }
+
+            quantityInput.addEventListener('input', calculateTotal);
+            unitPriceInput.addEventListener('input', calculateTotal);
+        }
+    }
+
+    // Initialize view buttons
+    function initializeViewButtons() {
+        const viewButtons = document.querySelectorAll('.view-transaction');
+        viewButtons.forEach(button => {
+            button.removeEventListener('click', viewButtonHandler);
+            button.addEventListener('click', viewButtonHandler);
+        });
+    }
+
+    // View button click handler
+    function viewButtonHandler(e) {
+        e.preventDefault();
+        const transactionId = this.getAttribute('data-id');
+        if (transactionId) {
+            viewTransaction(transactionId);
+        }
     }
 
     // View transaction details
     function viewTransaction(id) {
-        var modal = new bootstrap.Modal(document.getElementById('viewTransactionModal'));
+        const modal = new bootstrap.Modal(document.getElementById('viewTransactionModal'));
         modal.show();
         
-        document.getElementById('transactionDetails').innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        const detailsDiv = document.getElementById('transactionDetails');
+        detailsDiv.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 text-muted">Loading transaction details...</p>
+            </div>
+        `;
         
-        fetch('stock-transactions.php?ajax=get_details&id=' + id)
-            .then(response => response.json())
+        // Use relative URL with current query parameters
+        const url = new URL(window.location.href);
+        url.searchParams.set('ajax', 'get_details');
+        url.searchParams.set('id', id);
+        
+        fetch(url.toString())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
             .then(data => {
-                if (data.success) {
+                if (data.success && data.data) {
                     displayTransactionDetails(data.data);
                 } else {
-                    document.getElementById('transactionDetails').innerHTML = '<div class="alert alert-danger">Error loading transaction details</div>';
+                    detailsDiv.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="mdi mdi-alert-circle me-2"></i>
+                            Error: ${data.message || 'Could not load transaction details'}
+                        </div>
+                    `;
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                document.getElementById('transactionDetails').innerHTML = '<div class="alert alert-danger">Error loading transaction details</div>';
+                detailsDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="mdi mdi-alert-circle me-2"></i>
+                        Error loading transaction details. Please try again.
+                    </div>
+                `;
             });
     }
 
     function displayTransactionDetails(transaction) {
-        var html = `
+        // Format numbers
+        const formatNumber = (num, decimals = 2) => {
+            return parseFloat(num || 0).toFixed(decimals);
+        };
+
+        const formatDate = (dateStr) => {
+            return new Date(dateStr).toLocaleString();
+        };
+
+        let html = `
             <div class="table-responsive">
-                <table class="table table-bordered">
-                    <tr>
-                        <th width="40%">Transaction ID</th>
-                        <td>#${transaction.id}</td>
+                <table class="table table-bordered table-hover">
+                    <tr class="table-light">
+                        <th colspan="2" class="text-center">Transaction Information</th>
                     </tr>
                     <tr>
-                        <th>Date & Time</th>
-                        <td>${new Date(transaction.created_at).toLocaleString()}</td>
+                        <th width="35%">Transaction ID</th>
+                        <td><strong>#${transaction.id}</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Created Date & Time</th>
+                        <td>${formatDate(transaction.created_at)}</td>
                     </tr>
                     <tr>
                         <th>Transaction Date</th>
                         <td>${new Date(transaction.transaction_date).toLocaleDateString()}</td>
                     </tr>
+                    
+                    <tr class="table-light">
+                        <th colspan="2" class="text-center">Product Details</th>
+                    </tr>
                     <tr>
                         <th>Product</th>
-                        <td>${transaction.product_name} (${transaction.category_name || 'N/A'})</td>
+                        <td>
+                            <strong>${transaction.product_name || 'N/A'}</strong>
+                            ${transaction.category_name ? `<br><small class="text-muted">Category: ${transaction.category_name}</small>` : ''}
+                        </td>
                     </tr>
                     <tr>
                         <th>Transaction Type</th>
                         <td>
                             ${transaction.transaction_type === 'in' ? 
-                                '<span class="badge bg-success">Stock In</span>' : 
-                                '<span class="badge bg-danger">Stock Out</span>'}
+                                '<span class="badge bg-success px-3 py-2">Stock In <i class="mdi mdi-arrow-down-bold ms-1"></i></span>' : 
+                                '<span class="badge bg-danger px-3 py-2">Stock Out <i class="mdi mdi-arrow-up-bold ms-1"></i></span>'}
                         </td>
                     </tr>
                     <tr>
                         <th>Quantity</th>
-                        <td class="${transaction.transaction_type === 'in' ? 'text-success' : 'text-danger'} font-weight-bold">
-                            ${transaction.transaction_type === 'in' ? '+' : '-'}${transaction.quantity} ${transaction.unit}
+                        <td class="${transaction.transaction_type === 'in' ? 'text-success' : 'text-danger'} fw-bold">
+                            ${transaction.transaction_type === 'in' ? '+' : '-'}${formatNumber(transaction.quantity)} ${transaction.unit || ''}
                         </td>
                     </tr>
         `;
@@ -1028,7 +1148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             html += `
                     <tr>
                         <th>Unit Price</th>
-                        <td>₹${transaction.unit_price.toFixed(2)}</td>
+                        <td>₹${formatNumber(transaction.unit_price)}</td>
                     </tr>
             `;
         }
@@ -1037,43 +1157,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             html += `
                     <tr>
                         <th>Total Value</th>
-                        <td>₹${transaction.total_value.toFixed(2)}</td>
+                        <td><strong>₹${formatNumber(transaction.total_value)}</strong></td>
                     </tr>
             `;
         }
         
         if (transaction.reference_type && transaction.reference_id) {
             html += `
+                    <tr class="table-light">
+                        <th colspan="2" class="text-center">Reference Information</th>
+                    </tr>
                     <tr>
-                        <th>Reference</th>
-                        <td>
-                            <span class="badge bg-info">${transaction.reference_type} #${transaction.reference_id}</span>
+                        <th>Reference Type</th>
+                        <td><span class="badge bg-info">${transaction.reference_type}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Reference ID</th>
+                        <td>#${transaction.reference_id}</td>
+                    </tr>
             `;
             
             if (transaction.reference_details) {
-                if (transaction.reference_type === 'invoice') {
-                    html += `<br><small>Invoice: ${transaction.reference_details.invoice_number}<br>Customer: ${transaction.reference_details.customer_name}</small>`;
-                } else if (transaction.reference_type === 'purchase_order') {
-                    html += `<br><small>PO: ${transaction.reference_details.po_number}<br>Supplier: ${transaction.reference_details.supplier_name}</small>`;
+                if (transaction.reference_type === 'invoice' && transaction.reference_details) {
+                    html += `
+                        <tr>
+                            <th>Invoice Number</th>
+                            <td>${transaction.reference_details.invoice_number || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <th>Customer</th>
+                            <td>${transaction.reference_details.customer_name || 'N/A'}</td>
+                        </tr>
+                    `;
+                } else if (transaction.reference_type === 'purchase_order' && transaction.reference_details) {
+                    html += `
+                        <tr>
+                            <th>PO Number</th>
+                            <td>${transaction.reference_details.po_number || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <th>Supplier</th>
+                            <td>${transaction.reference_details.supplier_name || 'N/A'}</td>
+                        </tr>
+                    `;
                 }
             }
-            
-            html += `
-                        </td>
-                    </tr>
-            `;
         }
         
         if (transaction.notes) {
             html += `
+                    <tr class="table-light">
+                        <th colspan="2" class="text-center">Additional Notes</th>
+                    </tr>
                     <tr>
-                        <th>Notes</th>
-                        <td>${transaction.notes}</td>
+                        <td colspan="2">${transaction.notes}</td>
                     </tr>
             `;
         }
         
         html += `
+                    <tr class="table-light">
+                        <th colspan="2" class="text-center">Audit Information</th>
+                    </tr>
                     <tr>
                         <th>Created By</th>
                         <td>${transaction.created_by_name || 'System'}</td>
@@ -1084,7 +1229,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             html += `
                     <tr>
                         <th>Last Updated</th>
-                        <td>${new Date(transaction.updated_at).toLocaleString()} by ${transaction.updated_by_name}</td>
+                        <td>${formatDate(transaction.updated_at)}</td>
+                    </tr>
+                    <tr>
+                        <th>Updated By</th>
+                        <td>${transaction.updated_by_name}</td>
                     </tr>
             `;
         }
@@ -1097,89 +1246,168 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         document.getElementById('transactionDetails').innerHTML = html;
     }
 
-    // Transactions Chart
-    <?php if (!empty($trends)): ?>
-    var trends = <?= json_encode($trends) ?>;
-    
-    var options = {
-        chart: {
-            height: 350,
-            type: 'line',
-            toolbar: {
-                show: true
-            }
-        },
-        series: [
-            {
-                name: 'Stock In',
-                type: 'column',
-                data: trends.map(item => parseFloat(item.daily_in))
-            },
-            {
-                name: 'Stock Out',
-                type: 'column',
-                data: trends.map(item => parseFloat(item.daily_out))
-            },
-            {
-                name: 'Transaction Count',
-                type: 'line',
-                data: trends.map(item => parseInt(item.transaction_count))
-            }
-        ],
-        stroke: {
-            width: [0, 0, 3],
-            curve: 'smooth'
-        },
-        plotOptions: {
-            bar: {
-                columnWidth: '50%'
-            }
-        },
-        fill: {
-            opacity: [1, 1, 1]
-        },
-        labels: trends.map(item => {
-            var date = new Date(item.trans_date);
-            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        }),
-        colors: ['#34c38f', '#f46a6a', '#556ee6'],
-        xaxis: {
-            type: 'category',
-            tickAmount: 10
-        },
-        yaxis: [
-            {
-                title: {
-                    text: 'Stock Quantity'
-                }
-            },
-            {
-                opposite: true,
-                title: {
-                    text: 'Transaction Count'
-                }
-            }
-        ],
-        tooltip: {
-            shared: true,
-            intersect: false
-        }
-    };
-
-    var chart = new ApexCharts(document.querySelector("#transactions-chart"), options);
-    chart.render();
-    <?php endif; ?>
+    // Refresh page function
+    function refreshPage() {
+        window.location.reload();
+    }
 
     // Export transactions
     function exportTransactions() {
-        var params = new URLSearchParams(window.location.search);
-        window.location.href = 'export-stock-transactions.php?' + params.toString();
+        Swal.fire({
+            title: 'Export Transactions',
+            text: 'Preparing export...',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+                
+                var params = new URLSearchParams(window.location.search);
+                params.set('export', '1');
+                
+                fetch('export-stock-transactions.php?' + params.toString())
+                    .then(response => response.blob())
+                    .then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `stock-transactions-${new Date().toISOString().split('T')[0]}.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                        
+                        Swal.close();
+                    })
+                    .catch(error => {
+                        console.error('Export error:', error);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Export Failed',
+                            text: 'Could not export transactions. Please try again.'
+                        });
+                    });
+            }
+        });
     }
 
     // Print report
     function printReport() {
         window.print();
     }
+
+    // Transactions Chart
+    <?php if (!empty($trends)): ?>
+    document.addEventListener('DOMContentLoaded', function() {
+        var trends = <?= json_encode($trends) ?>;
+        
+        var options = {
+            chart: {
+                height: 350,
+                type: 'line',
+                toolbar: {
+                    show: true
+                },
+                animations: {
+                    enabled: true
+                }
+            },
+            series: [
+                {
+                    name: 'Stock In',
+                    type: 'column',
+                    data: trends.map(item => parseFloat(item.daily_in || 0))
+                },
+                {
+                    name: 'Stock Out',
+                    type: 'column',
+                    data: trends.map(item => parseFloat(item.daily_out || 0))
+                },
+                {
+                    name: 'Transaction Count',
+                    type: 'line',
+                    data: trends.map(item => parseInt(item.transaction_count || 0))
+                }
+            ],
+            stroke: {
+                width: [0, 0, 3],
+                curve: 'smooth'
+            },
+            plotOptions: {
+                bar: {
+                    columnWidth: '50%',
+                    borderRadius: 4
+                }
+            },
+            fill: {
+                opacity: [0.85, 0.85, 1]
+            },
+            labels: trends.map(item => {
+                var date = new Date(item.trans_date);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }),
+            colors: ['#34c38f', '#f46a6a', '#556ee6'],
+            xaxis: {
+                type: 'category',
+                tickAmount: 10,
+                labels: {
+                    rotate: -45,
+                    rotateAlways: true
+                }
+            },
+            yaxis: [
+                {
+                    title: {
+                        text: 'Stock Quantity'
+                    },
+                    labels: {
+                        formatter: function(value) {
+                            return value.toFixed(0);
+                        }
+                    }
+                },
+                {
+                    opposite: true,
+                    title: {
+                        text: 'Transaction Count'
+                    },
+                    labels: {
+                        formatter: function(value) {
+                            return value.toFixed(0);
+                        }
+                    }
+                }
+            ],
+            tooltip: {
+                shared: true,
+                intersect: false,
+                y: {
+                    formatter: function(value, { seriesIndex }) {
+                        if (seriesIndex === 2) {
+                            return value + ' transactions';
+                        }
+                        return value.toFixed(2) + ' units';
+                    }
+                }
+            },
+            legend: {
+                position: 'top'
+            }
+        };
+
+        var chart = new ApexCharts(document.querySelector("#transactions-chart"), options);
+        chart.render();
+    });
+    <?php endif; ?>
+
+    // Auto-hide alerts after 5 seconds
+    setTimeout(function() {
+        var alerts = document.querySelectorAll('.alert');
+        alerts.forEach(function(alert) {
+            var bsAlert = new bootstrap.Alert(alert);
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
+        });
+    }, 100);
 </script>
 
 <?php
@@ -1194,7 +1422,8 @@ function buildPaginationUrl($page) {
 <style>
 @media print {
     .vertical-menu, .topbar, .footer, .btn, .modal, .apex-charts, 
-    .page-title-right, .card-title .btn, .action-buttons {
+    .page-title-right, .card-title .btn, .action-buttons,
+    form, .no-print {
         display: none !important;
     }
     .main-content {
@@ -1204,6 +1433,95 @@ function buildPaginationUrl($page) {
         border: none !important;
         box-shadow: none !important;
     }
+    .table {
+        font-size: 10pt;
+    }
+}
+
+/* Table styles */
+.table-centered td {
+    vertical-align: middle;
+}
+
+/* Badge styles */
+.badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+/* Modal styles */
+.modal-lg {
+    max-width: 800px;
+}
+
+#transactionDetails table th {
+    background-color: #f8f9fa;
+}
+
+/* View button */
+.btn-soft-primary {
+    color: #556ee6;
+    background-color: rgba(85, 110, 230, 0.1);
+    border-color: transparent;
+}
+
+.btn-soft-primary:hover {
+    color: #fff;
+    background-color: #556ee6;
+}
+
+/* Pagination */
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-link {
+    color: #556ee6;
+}
+
+.page-item.active .page-link {
+    background-color: #556ee6;
+    border-color: #556ee6;
+}
+
+/* Loading spinner */
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Filter form */
+#filterForm .btn {
+    min-width: 38px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .table-responsive {
+        font-size: 12px;
+    }
+    
+    .btn-sm {
+        padding: 0.2rem 0.4rem;
+    }
+}
+
+/* SweetAlert2 customization */
+.swal2-popup {
+    font-family: inherit;
+}
+
+.swal2-title {
+    font-size: 1.2rem;
+}
+
+.swal2-confirm {
+    background-color: #556ee6 !important;
+}
+
+/* Hover effects */
+.product-row:hover {
+    background-color: rgba(85, 110, 230, 0.05);
 }
 </style>
 

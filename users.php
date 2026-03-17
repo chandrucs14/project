@@ -375,8 +375,7 @@ try {
                                                 <option value="">All Roles</option>
                                                 <option value="admin" <?= $role_filter == 'admin' ? 'selected' : '' ?>>Admin</option>
                                                 <option value="sales" <?= $role_filter == 'sales' ? 'selected' : '' ?>>Sales</option>
-                                                <option value="manager" <?= $role_filter == 'manager' ? 'selected' : '' ?>>Manager</option>
-                                                <option value="auditor" <?= $role_filter == 'auditor' ? 'selected' : '' ?>>Auditor</option>
+                                                
                                             </select>
                                         </div>
                                     </div>
@@ -655,8 +654,7 @@ try {
                                     <option value="">Select Role</option>
                                     <option value="admin">Admin</option>
                                     <option value="sales">Sales</option>
-                                    <option value="manager">Manager</option>
-                                    <option value="auditor">Auditor</option>
+                                   
                                 </select>
                             </div>
                         </div>
