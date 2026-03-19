@@ -117,7 +117,7 @@
                 <span> Accounts </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
-                <li><a href="daywise-amounts.php">Day-wise Amounts</a></li>
+                
                 <li><a href="outstanding-report.php">Outstanding Report</a></li>
             </ul>
         </li>

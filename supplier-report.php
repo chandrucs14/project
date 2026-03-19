@@ -20,119 +20,6 @@ $status = isset($_GET['status']) ? $_GET['status'] : 'all'; // all, active, inac
 $sort_by = isset($_GET['sort_by']) ? $_GET['sort_by'] : 'purchases_desc'; // purchases_desc, name_asc, outstanding_desc
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
-// Handle AJAX request for supplier details
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'supplier_details' && isset($_GET['supplier_id'])) {
-    header('Content-Type: application/json');
-    
-    try {
-        $supplier_id = intval($_GET['supplier_id']);
-        $date_from = $_GET['date_from'] ?? date('Y-m-01');
-        $date_to = $_GET['date_to'] ?? date('Y-m-d');
-        
-        // Get supplier details
-        $supplierStmt = $pdo->prepare("
-            SELECT s.*, 
-                   COUNT(DISTINCT po.id) as total_orders,
-                   COALESCE(SUM(po.total_amount), 0) as total_purchases,
-                   s.outstanding_balance as current_outstanding,
-                   MAX(po.order_date) as last_purchase_date,
-                   MIN(po.order_date) as first_purchase_date
-            FROM suppliers s
-            LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.status NOT IN ('cancelled', 'draft')
-            WHERE s.id = :supplier_id
-            GROUP BY s.id
-        ");
-        $supplierStmt->execute([':supplier_id' => $supplier_id]);
-        $supplier = $supplierStmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$supplier) {
-            echo json_encode(['success' => false, 'message' => 'Supplier not found']);
-            exit();
-        }
-        
-        // Get recent purchase orders
-        $poStmt = $pdo->prepare("
-            SELECT 
-                po_number,
-                order_date,
-                expected_delivery,
-                total_amount,
-                status
-            FROM purchase_orders
-            WHERE supplier_id = :supplier_id
-            AND order_date BETWEEN :date_from AND :date_to
-            ORDER BY order_date DESC
-            LIMIT 20
-        ");
-        $poStmt->execute([
-            ':supplier_id' => $supplier_id,
-            ':date_from' => $date_from,
-            ':date_to' => $date_to
-        ]);
-        $orders = $poStmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Get payment history
-        $paymentStmt = $pdo->prepare("
-            SELECT 
-                so.transaction_date,
-                so.amount,
-                so.balance_after,
-                po.po_number,
-                so.reference_id
-            FROM supplier_outstanding so
-            LEFT JOIN purchase_orders po ON so.reference_id = po.id
-            WHERE so.supplier_id = :supplier_id
-            AND so.transaction_type = 'payment'
-            AND so.transaction_date BETWEEN :date_from AND :date_to
-            ORDER BY so.transaction_date DESC
-            LIMIT 20
-        ");
-        $paymentStmt->execute([
-            ':supplier_id' => $supplier_id,
-            ':date_from' => $date_from,
-            ':date_to' => $date_to
-        ]);
-        $payments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Get aging analysis
-        $agingStmt = $pdo->prepare("
-            SELECT 
-                COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), DATE_ADD(order_date, INTERVAL COALESCE(:payment_terms, 30) DAY)) <= 0 THEN total_amount ELSE 0 END), 0) as current,
-                COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), DATE_ADD(order_date, INTERVAL COALESCE(:payment_terms2, 30) DAY)) BETWEEN 1 AND 30 THEN total_amount ELSE 0 END), 0) as days_1_30,
-                COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), DATE_ADD(order_date, INTERVAL COALESCE(:payment_terms3, 30) DAY)) BETWEEN 31 AND 60 THEN total_amount ELSE 0 END), 0) as days_31_60,
-                COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), DATE_ADD(order_date, INTERVAL COALESCE(:payment_terms4, 30) DAY)) BETWEEN 61 AND 90 THEN total_amount ELSE 0 END), 0) as days_61_90,
-                COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), DATE_ADD(order_date, INTERVAL COALESCE(:payment_terms5, 30) DAY)) > 90 THEN total_amount ELSE 0 END), 0) as days_90_plus
-            FROM purchase_orders
-            WHERE supplier_id = :supplier_id
-            AND status IN ('sent', 'confirmed', 'partially_received')
-            AND total_amount > 0
-        ");
-        
-        $payment_terms = $supplier['payment_terms'] ?? 30;
-        $agingStmt->execute([
-            ':supplier_id' => $supplier_id,
-            ':payment_terms' => $payment_terms,
-            ':payment_terms2' => $payment_terms,
-            ':payment_terms3' => $payment_terms,
-            ':payment_terms4' => $payment_terms,
-            ':payment_terms5' => $payment_terms
-        ]);
-        $aging = $agingStmt->fetch(PDO::FETCH_ASSOC);
-        
-        echo json_encode([
-            'success' => true,
-            'supplier' => $supplier,
-            'orders' => $orders,
-            'payments' => $payments,
-            'aging' => $aging
-        ]);
-        
-    } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit();
-}
-
 // Handle AJAX request for report data
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
     header('Content-Type: application/json');
@@ -421,11 +308,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                        data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                        data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'detailed'): ?>
@@ -442,11 +327,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                             <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                        data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                        data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'aging'): ?>
@@ -472,11 +355,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                        data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                        data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'performance'): ?>
@@ -502,11 +383,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <span class="badge bg-soft-<?= $badgeClass ?> text-<?= $badgeClass ?>"><?= $reliability ?></span>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                        data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                        data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'inactive'): ?>
@@ -529,11 +408,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                        data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                        data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             <?php endif; ?>
                                         </tr>
@@ -1253,6 +1130,8 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 <head>
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 
 <body data-sidebar="dark">
@@ -1299,30 +1178,42 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 </div>
                 <!-- end page title -->
 
+                <!-- Error Message -->
+                <?php if (isset($error_message)): ?>
+                <div class="row">
+                    <div class="col-12">
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="mdi mdi-alert-circle me-2"></i><?= htmlspecialchars($error_message) ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <!-- Action Buttons -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-<?= $report_type == 'summary' ? 'primary' : 'outline-primary' ?>" id="btnSummary">
+                                    <a href="?report_type=summary" class="btn btn-<?= $report_type == 'summary' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-chart-bar"></i> Summary
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'detailed' ? 'primary' : 'outline-primary' ?>" id="btnDetailed">
+                                    </a>
+                                    <a href="?report_type=detailed" class="btn btn-<?= $report_type == 'detailed' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-format-list-bulleted"></i> Detailed
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'aging' ? 'primary' : 'outline-primary' ?>" id="btnAging">
+                                    </a>
+                                    <a href="?report_type=aging" class="btn btn-<?= $report_type == 'aging' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-clock-outline"></i> Aging
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'performance' ? 'primary' : 'outline-primary' ?>" id="btnPerformance">
+                                    </a>
+                                    <a href="?report_type=performance" class="btn btn-<?= $report_type == 'performance' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-chart-line"></i> Performance
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'inactive' ? 'primary' : 'outline-primary' ?>" id="btnInactive">
+                                    </a>
+                                    <a href="?report_type=inactive" class="btn btn-<?= $report_type == 'inactive' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-sleep"></i> Inactive
-                                    </button>
-                                    <button type="button" class="btn btn-success" id="btnExport">
+                                    </a>
+                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success">
                                         <i class="mdi mdi-export"></i> Export CSV
-                                    </button>
+                                    </a>
                                     <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
@@ -1397,12 +1288,12 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                     
                                     <div class="col-12">
                                         <div class="mb-3">
-                                            <button type="button" class="btn btn-primary me-2" id="applyFilterBtn">
+                                            <button type="submit" class="btn btn-primary me-2">
                                                 <i class="mdi mdi-filter"></i> Apply Filters
                                             </button>
-                                            <button type="button" class="btn btn-secondary" id="resetFilterBtn">
+                                            <a href="supplier-report.php?report_type=<?= $report_type ?>" class="btn btn-secondary">
                                                 <i class="mdi mdi-refresh"></i> Reset
-                                            </button>
+                                            </a>
                                         </div>
                                     </div>
                                 </form>
@@ -1651,11 +1542,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                    data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                                    data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'detailed'): ?>
@@ -1672,11 +1561,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                                         <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                    data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                                    data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'aging'): ?>
@@ -1702,11 +1589,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                    data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                                    data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'performance'): ?>
@@ -1732,11 +1617,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <span class="badge bg-soft-<?= $badgeClass ?> text-<?= $badgeClass ?>"><?= $reliability ?></span>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                    data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                                    data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'inactive'): ?>
@@ -1759,11 +1642,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                    data-supplier-id="<?= $row['supplier_id'] ?? '' ?>"
-                                                                    data-supplier-name="<?= htmlspecialchars($row['supplier_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-supplier.php?id=<?= $row['supplier_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         <?php endif; ?>
                                                     </tr>
@@ -1789,32 +1670,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
 </div>
 <!-- END layout-wrapper -->
-
-<!-- Supplier Details Modal -->
-<div class="modal fade" id="supplierDetailsModal" tabindex="-1" aria-labelledby="supplierDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="supplierDetailsModalLabel">Supplier Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="supplierDetailsContent">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading supplier details...</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <a href="#" class="btn btn-primary" id="viewSupplierFullBtn" target="_blank">View Full Profile</a>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Right Sidebar -->
 <?php include('includes/rightbar.php'); ?>
@@ -2018,433 +1873,16 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         performanceChart.render();
     }
 
-    // Report type buttons
-    document.getElementById('btnSummary')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('summary');
-    });
-
-    document.getElementById('btnDetailed')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('detailed');
-    });
-
-    document.getElementById('btnAging')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('aging');
-    });
-
-    document.getElementById('btnPerformance')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('performance');
-    });
-
-    document.getElementById('btnInactive')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('inactive');
-    });
-
-    // Update report type and load data
-    function updateReportType(type) {
-        document.getElementById('report_type').value = type;
-        
-        // Update button styles
-        const buttons = [
-            { id: 'btnSummary', type: 'summary' },
-            { id: 'btnDetailed', type: 'detailed' },
-            { id: 'btnAging', type: 'aging' },
-            { id: 'btnPerformance', type: 'performance' },
-            { id: 'btnInactive', type: 'inactive' }
-        ];
-        
-        buttons.forEach(btn => {
-            const element = document.getElementById(btn.id);
-            if (element) {
-                if (btn.type === type) {
-                    element.className = 'btn btn-primary';
-                } else {
-                    element.className = 'btn btn-outline-primary';
-                }
-            }
-        });
-        
-        // Load report data
-        loadReportData();
-    }
-
-    // Apply filter button
-    document.getElementById('applyFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        loadReportData();
-    });
-
-    // Reset filter button
-    document.getElementById('resetFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Reset form fields
-        document.getElementById('date_from').value = '<?= date('Y-m-01') ?>';
-        document.getElementById('date_to').value = '<?= date('Y-m-d') ?>';
-        document.getElementById('supplier_id').value = '';
-        document.getElementById('min_purchases').value = '';
-        document.getElementById('sort_by').value = 'purchases_desc';
-        document.getElementById('search').value = '';
-        
-        // Load report data
-        loadReportData();
-    });
-
-    // Export button
-    document.getElementById('btnExport')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Build export URL with current filters
-        const params = new URLSearchParams();
-        params.append('export', 'csv');
-        params.append('report_type', document.getElementById('report_type').value);
-        params.append('date_from', document.getElementById('date_from').value);
-        params.append('date_to', document.getElementById('date_to').value);
-        params.append('supplier_id', document.getElementById('supplier_id').value);
-        params.append('min_purchases', document.getElementById('min_purchases').value);
-        params.append('sort_by', document.getElementById('sort_by').value);
-        params.append('search', document.getElementById('search').value);
-        
-        window.location.href = 'supplier-report.php?' + params.toString();
-    });
-
-    // Load report data via AJAX
-    function loadReportData() {
-        const reportType = document.getElementById('report_type').value;
-        const dateFrom = document.getElementById('date_from').value;
-        const dateTo = document.getElementById('date_to').value;
-        const supplierId = document.getElementById('supplier_id').value;
-        const minPurchases = document.getElementById('min_purchases').value;
-        const sortBy = document.getElementById('sort_by').value;
-        const search = document.getElementById('search').value;
-        
-        // Show loading indicator
-        document.getElementById('loadingIndicator').style.display = 'block';
-        document.getElementById('reportContent').style.opacity = '0.5';
-        
-        // Build URL with parameters
-        const url = new URL(window.location.href);
-        url.searchParams.set('ajax', 'load_report');
-        url.searchParams.set('report_type', reportType);
-        url.searchParams.set('date_from', dateFrom);
-        url.searchParams.set('date_to', dateTo);
-        url.searchParams.set('supplier_id', supplierId);
-        url.searchParams.set('min_purchases', minPurchases);
-        url.searchParams.set('sort_by', sortBy);
-        url.searchParams.set('search', search);
-        
-        fetch(url.toString())
-            .then(response => response.json())
-            .then(data => {
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                if (data.success) {
-                    // Update report content
-                    document.getElementById('reportContent').innerHTML = data.html;
-                    
-                    // Show success message
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success',
-                        text: 'Report loaded successfully!',
-                        timer: 1500,
-                        showConfirmButton: false
-                    });
-                    
-                    // Reinitialize charts based on report type
-                    setTimeout(function() {
-                        if (data.report_type === 'summary' && data.chart_data && data.chart_data.suppliers && data.chart_data.suppliers.length > 0) {
-                            initTopSuppliersChart(data.chart_data);
-                        } else if (data.report_type === 'aging' && data.chart_data && data.chart_data.buckets && data.chart_data.buckets.length > 0) {
-                            initAgingChart(data.chart_data);
-                        } else if (data.report_type === 'performance' && data.chart_data && data.chart_data.metrics) {
-                            initPerformanceChart(data.chart_data);
-                        }
-                        
-                        // Reattach view buttons
-                        attachViewButtons();
-                    }, 100);
-                } else {
-                    // Show error message
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message || 'Failed to load report data',
-                        confirmButtonColor: '#556ee6'
-                    });
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                // Show error message
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: 'An error occurred while loading the report',
-                    confirmButtonColor: '#556ee6'
-                });
-            });
-    }
-
-    // Attach view buttons
-    function attachViewButtons() {
-        document.querySelectorAll('.view-supplier-btn').forEach(button => {
-            button.addEventListener('click', function(e) {
-                e.preventDefault();
-                const supplierId = this.dataset.supplierId;
-                const supplierName = this.dataset.supplierName;
-                const dateFrom = document.getElementById('date_from').value;
-                const dateTo = document.getElementById('date_to').value;
-                
-                if (supplierId) {
-                    showSupplierDetails(supplierId, supplierName, dateFrom, dateTo);
-                } else {
-                    Swal.fire({
-                        icon: 'warning',
-                        title: 'Warning',
-                        text: 'Invalid supplier ID',
-                        confirmButtonColor: '#556ee6'
-                    });
-                }
-            });
-        });
-    }
-
-    // Show supplier details
-    function showSupplierDetails(supplierId, supplierName, dateFrom, dateTo) {
-        const modal = new bootstrap.Modal(document.getElementById('supplierDetailsModal'));
-        const modalTitle = document.getElementById('supplierDetailsModalLabel');
-        const modalContent = document.getElementById('supplierDetailsContent');
-        const viewFullBtn = document.getElementById('viewSupplierFullBtn');
-        
-        modalTitle.textContent = `Supplier Details - ${supplierName || 'Unknown'}`;
-        viewFullBtn.href = `view-supplier.php?id=${supplierId}`;
-        modalContent.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading supplier details...</p>
-            </div>
-        `;
-        
-        modal.show();
-        
-        fetch(`supplier-report.php?ajax=supplier_details&supplier_id=${supplierId}&date_from=${dateFrom}&date_to=${dateTo}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displaySupplierDetails(data);
-                } else {
-                    modalContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                modalContent.innerHTML = '<div class="alert alert-danger">An error occurred while loading supplier details</div>';
-            });
-    }
-
-    // Display supplier details
-    function displaySupplierDetails(data) {
-        const supplier = data.supplier || {};
-        const orders = data.orders || [];
-        const payments = data.payments || [];
-        const aging = data.aging || {};
-        
-        let html = `
-            <div class="row mb-4">
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Supplier Information</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Name:</strong></td>
-                                    <td>${escapeHtml(supplier.name || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Code:</strong></td>
-                                    <td>${escapeHtml(supplier.supplier_code || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Company:</strong></td>
-                                    <td>${escapeHtml(supplier.company_name || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Phone:</strong></td>
-                                    <td>${escapeHtml(supplier.phone || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Email:</strong></td>
-                                    <td>${escapeHtml(supplier.email || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>GST:</strong></td>
-                                    <td>${escapeHtml(supplier.gst_number || 'N/A')}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Purchase Summary</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Total Orders:</strong></td>
-                                    <td>${supplier.total_orders || 0}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Total Purchases:</strong></td>
-                                    <td>₹${parseFloat(supplier.total_purchases || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Outstanding:</strong></td>
-                                    <td class="text-danger">₹${parseFloat(supplier.current_outstanding || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>First Purchase:</strong></td>
-                                    <td>${supplier.first_purchase_date ? new Date(supplier.first_purchase_date).toLocaleDateString() : 'Never'}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Last Purchase:</strong></td>
-                                    <td>${supplier.last_purchase_date ? new Date(supplier.last_purchase_date).toLocaleDateString() : 'Never'}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Aging Analysis</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Current:</strong></td>
-                                    <td>₹${parseFloat(aging.current || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>1-30 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_1_30 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>31-60 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_31_60 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>61-90 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_61_90 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>90+ Days:</strong></td>
-                                    <td class="text-danger">₹${parseFloat(aging.days_90_plus || 0).toFixed(2)}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <h6 class="mb-3">Recent Purchase Orders</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>PO #</th>
-                            <th>Date</th>
-                            <th>Expected Delivery</th>
-                            <th class="text-end">Amount</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (orders.length > 0) {
-            orders.forEach(order => {
-                const statusClass = order.status === 'completed' ? 'success' : (order.status === 'cancelled' ? 'danger' : 'warning');
-                html += `
-                    <tr>
-                        <td>${escapeHtml(order.po_number || '')}</td>
-                        <td>${order.order_date ? new Date(order.order_date).toLocaleDateString() : 'N/A'}</td>
-                        <td>${order.expected_delivery ? new Date(order.expected_delivery).toLocaleDateString() : 'N/A'}</td>
-                        <td class="text-end">₹${parseFloat(order.total_amount || 0).toFixed(2)}</td>
-                        <td><span class="badge bg-soft-${statusClass} text-${statusClass}">${order.status || 'N/A'}</span></td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="5" class="text-center">No purchase orders found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-            
-            <h6 class="mb-3 mt-4">Recent Payments</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Date</th>
-                            <th>PO #</th>
-                            <th class="text-end">Amount</th>
-                            <th class="text-end">Balance After</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (payments.length > 0) {
-            payments.forEach(payment => {
-                html += `
-                    <tr>
-                        <td>${payment.transaction_date ? new Date(payment.transaction_date).toLocaleDateString() : 'N/A'}</td>
-                        <td>${escapeHtml(payment.po_number || 'N/A')}</td>
-                        <td class="text-end text-success">₹${parseFloat(payment.amount || 0).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(payment.balance_after || 0).toFixed(2)}</td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="4" class="text-center">No payment history found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        document.getElementById('supplierDetailsContent').innerHTML = html;
-    }
-
-    // Helper function to escape HTML
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // Initial attachment of view buttons
+    // Auto-hide alerts after 5 seconds
     setTimeout(function() {
-        attachViewButtons();
-    }, 500);
+        var alerts = document.querySelectorAll('.alert');
+        alerts.forEach(function(alert) {
+            var bsAlert = new bootstrap.Alert(alert);
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
+        });
+    }, 100);
 </script>
 
 <style>
@@ -2517,17 +1955,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 }
 .aging-current {
     background-color: #d4edda;
-}
-
-/* Modal styles */
-.modal-xl {
-    max-width: 95%;
-}
-
-@media (min-width: 1200px) {
-    .modal-xl {
-        max-width: 1140px;
-    }
 }
 
 /* SweetAlert2 customization */

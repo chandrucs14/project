@@ -413,11 +413,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                        data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                        data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'detailed'): ?>
@@ -434,11 +432,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                             <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                        data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                        data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'aging'): ?>
@@ -463,11 +459,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                        data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                        data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'loyalty'): ?>
@@ -494,11 +488,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 </span>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                        data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                        data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             
                                             <?php elseif ($report_type == 'inactive'): ?>
@@ -520,11 +512,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                        data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                        data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                    <i class="mdi mdi-eye"></i>
-                                                </button>
+                                                <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                    <i class="mdi mdi-eye"></i> View
+                                                </a>
                                             </td>
                                             <?php endif; ?>
                                         </tr>
@@ -1243,6 +1233,8 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 <head>
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 
 <body data-sidebar="dark">
@@ -1289,6 +1281,18 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 </div>
                 <!-- end page title -->
 
+                <!-- Error Message -->
+                <?php if (isset($error_message)): ?>
+                <div class="row">
+                    <div class="col-12">
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="mdi mdi-alert-circle me-2"></i><?= htmlspecialchars($error_message) ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <!-- Action Buttons -->
                 <div class="row">
                     <div class="col-12">
@@ -1310,9 +1314,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                     <button type="button" class="btn btn-<?= $report_type == 'inactive' ? 'primary' : 'outline-primary' ?>" id="btnInactive">
                                         <i class="mdi mdi-sleep"></i> Inactive
                                     </button>
-                                    <button type="button" class="btn btn-success" id="btnExport">
+                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success" id="btnExport">
                                         <i class="mdi mdi-export"></i> Export CSV
-                                    </button>
+                                    </a>
                                     <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
@@ -1387,12 +1391,12 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                     
                                     <div class="col-12">
                                         <div class="mb-3">
-                                            <button type="button" class="btn btn-primary me-2" id="applyFilterBtn">
+                                            <button type="submit" class="btn btn-primary me-2">
                                                 <i class="mdi mdi-filter"></i> Apply Filters
                                             </button>
-                                            <button type="button" class="btn btn-secondary" id="resetFilterBtn">
+                                            <a href="customer-report.php?report_type=<?= $report_type ?>" class="btn btn-secondary">
                                                 <i class="mdi mdi-refresh"></i> Reset
-                                            </button>
+                                            </a>
                                         </div>
                                     </div>
                                 </form>
@@ -1638,11 +1642,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                    data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                                    data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'detailed'): ?>
@@ -1659,11 +1661,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                                         <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                    data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                                    data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'aging'): ?>
@@ -1688,11 +1688,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                    data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                                    data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'loyalty'): ?>
@@ -1719,11 +1717,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             </span>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                    data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                                    data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         
                                                         <?php elseif ($report_type == 'inactive'): ?>
@@ -1745,11 +1741,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                    data-customer-id="<?= $row['customer_id'] ?? '' ?>"
-                                                                    data-customer-name="<?= htmlspecialchars($row['customer_name'] ?? '') ?>">
-                                                                <i class="mdi mdi-eye"></i>
-                                                            </button>
+                                                            <a href="view-customer.php?id=<?= $row['customer_id'] ?? '' ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
+                                                                <i class="mdi mdi-eye"></i> View
+                                                            </a>
                                                         </td>
                                                         <?php endif; ?>
                                                     </tr>
@@ -1775,32 +1769,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
 </div>
 <!-- END layout-wrapper -->
-
-<!-- Customer Details Modal -->
-<div class="modal fade" id="customerDetailsModal" tabindex="-1" aria-labelledby="customerDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="customerDetailsModalLabel">Customer Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="customerDetailsContent">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading customer details...</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <a href="#" class="btn btn-primary" id="viewCustomerFullBtn" target="_blank">View Full Profile</a>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Right Sidebar -->
 <?php include('includes/rightbar.php'); ?>
@@ -1983,437 +1951,16 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         loyaltyChart.render();
     }
 
-    // Report type buttons
-    document.getElementById('btnSummary')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('summary');
-    });
-
-    document.getElementById('btnDetailed')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('detailed');
-    });
-
-    document.getElementById('btnAging')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('aging');
-    });
-
-    document.getElementById('btnLoyalty')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('loyalty');
-    });
-
-    document.getElementById('btnInactive')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('inactive');
-    });
-
-    // Update report type and load data
-    function updateReportType(type) {
-        document.getElementById('report_type').value = type;
-        
-        // Update button styles
-        const buttons = [
-            { id: 'btnSummary', type: 'summary' },
-            { id: 'btnDetailed', type: 'detailed' },
-            { id: 'btnAging', type: 'aging' },
-            { id: 'btnLoyalty', type: 'loyalty' },
-            { id: 'btnInactive', type: 'inactive' }
-        ];
-        
-        buttons.forEach(btn => {
-            const element = document.getElementById(btn.id);
-            if (element) {
-                if (btn.type === type) {
-                    element.className = 'btn btn-primary';
-                } else {
-                    element.className = 'btn btn-outline-primary';
-                }
-            }
-        });
-        
-        // Load report data
-        loadReportData();
-    }
-
-    // Apply filter button
-    document.getElementById('applyFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        loadReportData();
-    });
-
-    // Reset filter button
-    document.getElementById('resetFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Reset form fields
-        document.getElementById('date_from').value = '<?= date('Y-m-01') ?>';
-        document.getElementById('date_to').value = '<?= date('Y-m-d') ?>';
-        document.getElementById('customer_id').value = '';
-        document.getElementById('min_sales').value = '';
-        document.getElementById('sort_by').value = 'sales_desc';
-        document.getElementById('search').value = '';
-        
-        // Load report data
-        loadReportData();
-    });
-
-    // Export button
-    document.getElementById('btnExport')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Build export URL with current filters
-        const params = new URLSearchParams();
-        params.append('export', 'csv');
-        params.append('report_type', document.getElementById('report_type').value);
-        params.append('date_from', document.getElementById('date_from').value);
-        params.append('date_to', document.getElementById('date_to').value);
-        params.append('customer_id', document.getElementById('customer_id').value);
-        params.append('min_sales', document.getElementById('min_sales').value);
-        params.append('sort_by', document.getElementById('sort_by').value);
-        params.append('search', document.getElementById('search').value);
-        
-        window.location.href = 'customer-report.php?' + params.toString();
-    });
-
-    // Load report data via AJAX
-    function loadReportData() {
-        const reportType = document.getElementById('report_type').value;
-        const dateFrom = document.getElementById('date_from').value;
-        const dateTo = document.getElementById('date_to').value;
-        const customerId = document.getElementById('customer_id').value;
-        const minSales = document.getElementById('min_sales').value;
-        const sortBy = document.getElementById('sort_by').value;
-        const search = document.getElementById('search').value;
-        
-        // Show loading indicator
-        document.getElementById('loadingIndicator').style.display = 'block';
-        document.getElementById('reportContent').style.opacity = '0.5';
-        
-        // Build URL with parameters
-        const url = new URL(window.location.href);
-        url.searchParams.set('ajax', 'load_report');
-        url.searchParams.set('report_type', reportType);
-        url.searchParams.set('date_from', dateFrom);
-        url.searchParams.set('date_to', dateTo);
-        url.searchParams.set('customer_id', customerId);
-        url.searchParams.set('min_sales', minSales);
-        url.searchParams.set('sort_by', sortBy);
-        url.searchParams.set('search', search);
-        
-        fetch(url.toString())
-            .then(response => response.json())
-            .then(data => {
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                if (data.success) {
-                    // Update report content
-                    document.getElementById('reportContent').innerHTML = data.html;
-                    
-                    // Show success message
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success',
-                        text: 'Report loaded successfully!',
-                        timer: 1500,
-                        showConfirmButton: false
-                    });
-                    
-                    // Reinitialize charts based on report type
-                    setTimeout(function() {
-                        if (data.report_type === 'summary' && data.chart_data && data.chart_data.customers && data.chart_data.customers.length > 0) {
-                            initTopCustomersChart(data.chart_data);
-                        } else if (data.report_type === 'aging' && data.chart_data && data.chart_data.buckets && data.chart_data.buckets.length > 0) {
-                            initAgingChart(data.chart_data);
-                        } else if (data.report_type === 'loyalty' && data.chart_data && data.chart_data.categories && data.chart_data.categories.length > 0) {
-                            initLoyaltyChart(data.chart_data);
-                        }
-                        
-                        // Reattach view buttons
-                        attachViewButtons();
-                    }, 100);
-                } else {
-                    // Show error message
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message || 'Failed to load report data',
-                        confirmButtonColor: '#556ee6'
-                    });
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                // Show error message
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: 'An error occurred while loading the report',
-                    confirmButtonColor: '#556ee6'
-                });
-            });
-    }
-
-    // Attach view buttons
-    function attachViewButtons() {
-        document.querySelectorAll('.view-customer-btn').forEach(button => {
-            button.addEventListener('click', function(e) {
-                e.preventDefault();
-                const customerId = this.dataset.customerId;
-                const customerName = this.dataset.customerName;
-                const dateFrom = document.getElementById('date_from').value;
-                const dateTo = document.getElementById('date_to').value;
-                
-                if (customerId) {
-                    showCustomerDetails(customerId, customerName, dateFrom, dateTo);
-                } else {
-                    Swal.fire({
-                        icon: 'warning',
-                        title: 'Warning',
-                        text: 'Invalid customer ID',
-                        confirmButtonColor: '#556ee6'
-                    });
-                }
-            });
-        });
-    }
-
-    // Show customer details
-    function showCustomerDetails(customerId, customerName, dateFrom, dateTo) {
-        const modal = new bootstrap.Modal(document.getElementById('customerDetailsModal'));
-        const modalTitle = document.getElementById('customerDetailsModalLabel');
-        const modalContent = document.getElementById('customerDetailsContent');
-        const viewFullBtn = document.getElementById('viewCustomerFullBtn');
-        
-        modalTitle.textContent = `Customer Details - ${customerName || 'Unknown'}`;
-        viewFullBtn.href = `view-customer.php?id=${customerId}`;
-        modalContent.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading customer details...</p>
-            </div>
-        `;
-        
-        modal.show();
-        
-        fetch(`customer-report.php?ajax=customer_details&customer_id=${customerId}&date_from=${dateFrom}&date_to=${dateTo}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displayCustomerDetails(data);
-                } else {
-                    modalContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                modalContent.innerHTML = '<div class="alert alert-danger">An error occurred while loading customer details</div>';
-            });
-    }
-
-    // Display customer details
-    function displayCustomerDetails(data) {
-        const customer = data.customer || {};
-        const invoices = data.invoices || [];
-        const payments = data.payments || [];
-        const aging = data.aging || {};
-        
-        let html = `
-            <div class="row mb-4">
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Customer Information</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Name:</strong></td>
-                                    <td>${escapeHtml(customer.name || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Code:</strong></td>
-                                    <td>${escapeHtml(customer.customer_code || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Phone:</strong></td>
-                                    <td>${escapeHtml(customer.phone || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Email:</strong></td>
-                                    <td>${escapeHtml(customer.email || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Credit Limit:</strong></td>
-                                    <td>₹${parseFloat(customer.credit_limit || 0).toFixed(2)}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Sales Summary</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Total Invoices:</strong></td>
-                                    <td>${customer.total_invoices || 0}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Total Sales:</strong></td>
-                                    <td>₹${parseFloat(customer.total_sales || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Total Paid:</strong></td>
-                                    <td>₹${parseFloat(customer.total_paid || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Outstanding:</strong></td>
-                                    <td class="text-danger">₹${parseFloat(customer.current_outstanding || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>First Purchase:</strong></td>
-                                    <td>${customer.first_purchase_date ? new Date(customer.first_purchase_date).toLocaleDateString() : 'Never'}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Last Purchase:</strong></td>
-                                    <td>${customer.last_purchase_date ? new Date(customer.last_purchase_date).toLocaleDateString() : 'Never'}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Aging Analysis</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td><strong>Current:</strong></td>
-                                    <td>₹${parseFloat(aging.current || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>1-30 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_1_30 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>31-60 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_31_60 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>61-90 Days:</strong></td>
-                                    <td>₹${parseFloat(aging.days_61_90 || 0).toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>90+ Days:</strong></td>
-                                    <td class="text-danger">₹${parseFloat(aging.days_90_plus || 0).toFixed(2)}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <h6 class="mb-3">Recent Invoices</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Invoice #</th>
-                            <th>Date</th>
-                            <th>Due Date</th>
-                            <th class="text-end">Total</th>
-                            <th class="text-end">Paid</th>
-                            <th class="text-end">Outstanding</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (invoices.length > 0) {
-            invoices.forEach(inv => {
-                const statusClass = inv.status === 'paid' ? 'success' : (inv.status === 'overdue' ? 'danger' : 'warning');
-                html += `
-                    <tr>
-                        <td>${escapeHtml(inv.invoice_number || '')}</td>
-                        <td>${inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString() : 'N/A'}</td>
-                        <td>${inv.due_date ? new Date(inv.due_date).toLocaleDateString() : 'N/A'}</td>
-                        <td class="text-end">₹${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(inv.paid_amount || 0).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(inv.outstanding_amount || 0).toFixed(2)}</td>
-                        <td><span class="badge bg-soft-${statusClass} text-${statusClass}">${inv.status || 'N/A'}</span></td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="7" class="text-center">No invoices found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-            
-            <h6 class="mb-3 mt-4">Recent Payments</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Date</th>
-                            <th>Invoice</th>
-                            <th class="text-end">Amount</th>
-                            <th class="text-end">Balance After</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (payments.length > 0) {
-            payments.forEach(payment => {
-                html += `
-                    <tr>
-                        <td>${payment.transaction_date ? new Date(payment.transaction_date).toLocaleDateString() : 'N/A'}</td>
-                        <td>${escapeHtml(payment.invoice_number || 'N/A')}</td>
-                        <td class="text-end text-success">₹${parseFloat(payment.amount || 0).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(payment.balance_after || 0).toFixed(2)}</td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="4" class="text-center">No payment history found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        document.getElementById('customerDetailsContent').innerHTML = html;
-    }
-
-    // Helper function to escape HTML
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // Initial attachment of view buttons
+    // Auto-hide alerts after 5 seconds
     setTimeout(function() {
-        attachViewButtons();
-    }, 500);
+        var alerts = document.querySelectorAll('.alert');
+        alerts.forEach(function(alert) {
+            var bsAlert = new bootstrap.Alert(alert);
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
+        });
+    }, 100);
 </script>
 
 <style>

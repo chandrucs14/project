@@ -52,6 +52,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'customer_details' && isset($_GET[
         // Get invoice details
         $invoiceStmt = $pdo->prepare("
             SELECT 
+                id,
                 invoice_number,
                 invoice_date,
                 due_date,
@@ -136,6 +137,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'supplier_details' && isset($_GET[
         // Get purchase order details
         $poStmt = $pdo->prepare("
             SELECT 
+                po.id,
                 po.po_number,
                 po.order_date,
                 DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY) as due_date,
@@ -513,21 +515,23 @@ try {
     }
     
     // Log activity
-    $logStmt = $pdo->prepare("
-        INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by)
-        VALUES (:user_id, 6, :description, :activity_data, :created_by)
-    ");
-    $logStmt->execute([
-        ':user_id' => $_SESSION['user_id'] ?? null,
-        ':description' => "Generated outstanding report as on " . $as_on_date,
-        ':activity_data' => json_encode([
-            'report_type' => $report_type,
-            'as_on_date' => $as_on_date,
-            'customer_outstanding' => $total_customer_outstanding,
-            'supplier_outstanding' => $total_supplier_outstanding
-        ]),
-        ':created_by' => $_SESSION['user_id'] ?? null
-    ]);
+    if (isset($_SESSION['user_id'])) {
+        $logStmt = $pdo->prepare("
+            INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by)
+            VALUES (:user_id, 6, :description, :activity_data, :created_by)
+        ");
+        $logStmt->execute([
+            ':user_id' => $_SESSION['user_id'] ?? null,
+            ':description' => "Generated outstanding report as on " . $as_on_date,
+            ':activity_data' => json_encode([
+                'report_type' => $report_type,
+                'as_on_date' => $as_on_date,
+                'customer_outstanding' => $total_customer_outstanding,
+                'supplier_outstanding' => $total_supplier_outstanding
+            ]),
+            ':created_by' => $_SESSION['user_id'] ?? null
+        ]);
+    }
     
 } catch (Exception $e) {
     error_log("Outstanding report error: " . $e->getMessage());
@@ -605,6 +609,15 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Chart JS -->
+    <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
 
 <body data-sidebar="dark">
 
@@ -1103,11 +1116,9 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
-                                                        <button type="button" class="btn btn-sm btn-soft-primary view-customer-btn" 
-                                                                data-customer-id="<?= $customer['id'] ?>"
-                                                                data-customer-name="<?= htmlspecialchars($customer['name']) ?>">
+                                                        <a href="view-customer.php?id=<?= $customer['id'] ?>" class="btn btn-sm btn-soft-primary" title="View Customer Details">
                                                             <i class="mdi mdi-eye"></i>
-                                                        </button>
+                                                        </a>
                                                     </td>
                                                 </tr>
                                                 <?php endforeach; ?>
@@ -1194,11 +1205,9 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
-                                                        <button type="button" class="btn btn-sm btn-soft-primary view-supplier-btn" 
-                                                                data-supplier-id="<?= $supplier['id'] ?>"
-                                                                data-supplier-name="<?= htmlspecialchars($supplier['name']) ?>">
+                                                        <a href="view-supplier.php?id=<?= $supplier['id'] ?>" class="btn btn-sm btn-soft-primary" title="View Supplier Details">
                                                             <i class="mdi mdi-eye"></i>
-                                                        </button>
+                                                        </a>
                                                     </td>
                                                 </tr>
                                                 <?php endforeach; ?>
@@ -1224,62 +1233,6 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
 </div>
 <!-- END layout-wrapper -->
 
-<!-- Customer Details Modal -->
-<div class="modal fade" id="customerDetailsModal" tabindex="-1" aria-labelledby="customerDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="customerDetailsModalLabel">Customer Outstanding Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="customerDetailsContent">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading customer details...</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="printCustomerDetails()">
-                    <i class="mdi mdi-printer"></i> Print
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Supplier Details Modal -->
-<div class="modal fade" id="supplierDetailsModal" tabindex="-1" aria-labelledby="supplierDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="supplierDetailsModalLabel">Supplier Outstanding Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="supplierDetailsContent">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading supplier details...</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="printSupplierDetails()">
-                    <i class="mdi mdi-printer"></i> Print
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Right Sidebar -->
 <?php include('includes/rightbar.php'); ?>
 <!-- /Right-bar -->
@@ -1287,8 +1240,8 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- Chart JS -->
-<script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
     // Initialize tooltips
@@ -1447,464 +1400,6 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     supplierChart.render();
     <?php endif; ?>
 
-    // Customer view buttons
-    document.querySelectorAll('.view-customer-btn').forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const customerId = this.dataset.customerId;
-            const customerName = this.dataset.customerName;
-            const asOnDate = document.getElementById('as_on_date').value;
-            
-            showCustomerDetails(customerId, customerName, asOnDate);
-        });
-    });
-
-    // Supplier view buttons
-    document.querySelectorAll('.view-supplier-btn').forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const supplierId = this.dataset.supplierId;
-            const supplierName = this.dataset.supplierName;
-            const asOnDate = document.getElementById('as_on_date').value;
-            
-            showSupplierDetails(supplierId, supplierName, asOnDate);
-        });
-    });
-
-    // Show customer details via AJAX
-    function showCustomerDetails(customerId, customerName, asOnDate) {
-        const modal = new bootstrap.Modal(document.getElementById('customerDetailsModal'));
-        const modalTitle = document.getElementById('customerDetailsModalLabel');
-        const modalContent = document.getElementById('customerDetailsContent');
-        
-        modalTitle.textContent = `Customer Details - ${customerName}`;
-        modalContent.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading customer details...</p>
-            </div>
-        `;
-        
-        modal.show();
-        
-        fetch(`outstanding-report.php?ajax=customer_details&customer_id=${customerId}&as_on_date=${asOnDate}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displayCustomerDetails(data);
-                } else {
-                    modalContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                modalContent.innerHTML = '<div class="alert alert-danger">An error occurred while loading customer details</div>';
-            });
-    }
-
-    // Display customer details in modal
-    function displayCustomerDetails(data) {
-        const customer = data.customer;
-        const aging = data.aging;
-        const invoices = data.invoices;
-        const payments = data.payments;
-        
-        let html = `
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Customer Information</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td width="40%"><strong>Name:</strong></td>
-                                    <td>${escapeHtml(customer.name)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Code:</strong></td>
-                                    <td>${escapeHtml(customer.customer_code)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Phone:</strong></td>
-                                    <td>${escapeHtml(customer.phone || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Email:</strong></td>
-                                    <td>${escapeHtml(customer.email || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Payment Terms:</strong></td>
-                                    <td>${customer.payment_terms || 'N/A'} days</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Credit Limit:</strong></td>
-                                    <td>₹${parseFloat(customer.credit_limit).toFixed(2)}</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Aging Summary</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td width="40%"><strong>Current:</strong></td>
-                                    <td class="text-end">₹${aging.current.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>1-30 Days:</strong></td>
-                                    <td class="text-end">₹${aging['1-30'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>31-60 Days:</strong></td>
-                                    <td class="text-end">₹${aging['31-60'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>61-90 Days:</strong></td>
-                                    <td class="text-end">₹${aging['61-90'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>91-180 Days:</strong></td>
-                                    <td class="text-end">₹${aging['91-180'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>180+ Days:</strong></td>
-                                    <td class="text-end text-danger">₹${aging['180+'].toFixed(2)}</td>
-                                </tr>
-                                <tr class="border-top">
-                                    <td><strong>Total Outstanding:</strong></td>
-                                    <td class="text-end"><strong>₹${aging.total.toFixed(2)}</strong></td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <h6 class="mb-3">Invoice Details</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Invoice #</th>
-                            <th>Date</th>
-                            <th>Due Date</th>
-                            <th class="text-end">Total</th>
-                            <th class="text-end">Paid</th>
-                            <th class="text-end">Outstanding</th>
-                            <th class="text-end">Days Overdue</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (invoices && invoices.length > 0) {
-            invoices.forEach(inv => {
-                const daysOverdue = parseInt(inv.days_overdue);
-                const statusClass = daysOverdue > 0 ? 'text-danger' : 'text-success';
-                
-                html += `
-                    <tr>
-                        <td>${escapeHtml(inv.invoice_number)}</td>
-                        <td>${formatDate(inv.invoice_date)}</td>
-                        <td>${formatDate(inv.due_date)}</td>
-                        <td class="text-end">₹${parseFloat(inv.total_amount).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(inv.paid_amount).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(inv.outstanding_amount).toFixed(2)}</td>
-                        <td class="text-end ${statusClass}">${daysOverdue > 0 ? daysOverdue : 'Current'}</td>
-                        <td><span class="badge bg-soft-${inv.status === 'overdue' ? 'danger' : 'warning'}">${inv.status}</span></td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="8" class="text-center">No invoices found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-            
-            <h6 class="mb-3 mt-4">Recent Payments</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Date</th>
-                            <th>Invoice</th>
-                            <th class="text-end">Amount</th>
-                            <th class="text-end">Balance After</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (payments && payments.length > 0) {
-            payments.forEach(payment => {
-                html += `
-                    <tr>
-                        <td>${formatDate(payment.transaction_date)}</td>
-                        <td>${escapeHtml(payment.invoice_number || 'N/A')}</td>
-                        <td class="text-end text-success">₹${parseFloat(payment.amount).toFixed(2)}</td>
-                        <td class="text-end">₹${parseFloat(payment.balance_after).toFixed(2)}</td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="4" class="text-center">No payment history found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        document.getElementById('customerDetailsContent').innerHTML = html;
-    }
-
-    // Show supplier details via AJAX
-    function showSupplierDetails(supplierId, supplierName, asOnDate) {
-        const modal = new bootstrap.Modal(document.getElementById('supplierDetailsModal'));
-        const modalTitle = document.getElementById('supplierDetailsModalLabel');
-        const modalContent = document.getElementById('supplierDetailsContent');
-        
-        modalTitle.textContent = `Supplier Details - ${supplierName}`;
-        modalContent.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading supplier details...</p>
-            </div>
-        `;
-        
-        modal.show();
-        
-        fetch(`outstanding-report.php?ajax=supplier_details&supplier_id=${supplierId}&as_on_date=${asOnDate}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displaySupplierDetails(data);
-                } else {
-                    modalContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                modalContent.innerHTML = '<div class="alert alert-danger">An error occurred while loading supplier details</div>';
-            });
-    }
-
-    // Display supplier details in modal
-    function displaySupplierDetails(data) {
-        const supplier = data.supplier;
-        const aging = data.aging;
-        const orders = data.orders;
-        
-        let html = `
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Supplier Information</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td width="40%"><strong>Name:</strong></td>
-                                    <td>${escapeHtml(supplier.name)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Code:</strong></td>
-                                    <td>${escapeHtml(supplier.supplier_code)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Company:</strong></td>
-                                    <td>${escapeHtml(supplier.company_name || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Phone:</strong></td>
-                                    <td>${escapeHtml(supplier.phone || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Email:</strong></td>
-                                    <td>${escapeHtml(supplier.email || 'N/A')}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Payment Terms:</strong></td>
-                                    <td>${supplier.payment_terms || 'N/A'} days</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <h6 class="card-title">Aging Summary</h6>
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <td width="40%"><strong>Current:</strong></td>
-                                    <td class="text-end">₹${aging.current.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>1-30 Days:</strong></td>
-                                    <td class="text-end">₹${aging['1-30'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>31-60 Days:</strong></td>
-                                    <td class="text-end">₹${aging['31-60'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>61-90 Days:</strong></td>
-                                    <td class="text-end">₹${aging['61-90'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>91-180 Days:</strong></td>
-                                    <td class="text-end">₹${aging['91-180'].toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>180+ Days:</strong></td>
-                                    <td class="text-end text-danger">₹${aging['180+'].toFixed(2)}</td>
-                                </tr>
-                                <tr class="border-top">
-                                    <td><strong>Total Outstanding:</strong></td>
-                                    <td class="text-end"><strong>₹${aging.total.toFixed(2)}</strong></td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <h6 class="mb-3">Purchase Order Details</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>PO #</th>
-                            <th>Date</th>
-                            <th>Due Date</th>
-                            <th class="text-end">Amount</th>
-                            <th class="text-end">Days Overdue</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        if (orders && orders.length > 0) {
-            orders.forEach(order => {
-                const daysOverdue = parseInt(order.days_overdue);
-                const statusClass = daysOverdue > 0 ? 'text-danger' : 'text-success';
-                
-                html += `
-                    <tr>
-                        <td>${escapeHtml(order.po_number)}</td>
-                        <td>${formatDate(order.order_date)}</td>
-                        <td>${formatDate(order.due_date)}</td>
-                        <td class="text-end">₹${parseFloat(order.total_amount).toFixed(2)}</td>
-                        <td class="text-end ${statusClass}">${daysOverdue > 0 ? daysOverdue : 'Current'}</td>
-                        <td><span class="badge bg-soft-${order.status === 'overdue' ? 'danger' : 'info'}">${order.status}</span></td>
-                    </tr>
-                `;
-            });
-        } else {
-            html += `<tr><td colspan="6" class="text-center">No purchase orders found</td></tr>`;
-        }
-        
-        html += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        document.getElementById('supplierDetailsContent').innerHTML = html;
-    }
-
-    // Helper function to escape HTML
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // Helper function to format date
-    function formatDate(dateString) {
-        if (!dateString) return 'N/A';
-        const date = new Date(dateString + 'T12:00:00');
-        return date.toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-    }
-
-    // Print customer details
-    function printCustomerDetails() {
-        const content = document.getElementById('customerDetailsContent').innerHTML;
-        const title = document.getElementById('customerDetailsModalLabel').textContent;
-        
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>${title}</title>
-                    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-                    <style>
-                        body { padding: 20px; }
-                        .table { font-size: 12px; }
-                        @media print {
-                            .btn { display: none; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h4 class="mb-4">${title}</h4>
-                    ${content}
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-    }
-
-    // Print supplier details
-    function printSupplierDetails() {
-        const content = document.getElementById('supplierDetailsContent').innerHTML;
-        const title = document.getElementById('supplierDetailsModalLabel').textContent;
-        
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>${title}</title>
-                    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-                    <style>
-                        body { padding: 20px; }
-                        .table { font-size: 12px; }
-                        @media print {
-                            .btn { display: none; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h4 class="mb-4">${title}</h4>
-                    ${content}
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-    }
-
     // Auto-hide alerts after 5 seconds
     setTimeout(function() {
         var alerts = document.querySelectorAll('.alert');
@@ -1915,12 +1410,6 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
             }, 5000);
         });
     }, 100);
-
-    // Handle form submission without page reload (optional)
-    document.getElementById('filterForm')?.addEventListener('submit', function(e) {
-        // Let the form submit normally for filter changes
-        // This is intentional as filters need to reload the page
-    });
 </script>
 
 <style>
@@ -1970,17 +1459,6 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
 .bucket-180plus {
     background-color: #dc3545;
     color: white;
-}
-
-/* Modal styles */
-.modal-xl {
-    max-width: 95%;
-}
-
-@media (min-width: 1200px) {
-    .modal-xl {
-        max-width: 1140px;
-    }
 }
 
 /* Button styles */

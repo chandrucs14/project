@@ -13,7 +13,7 @@ if (!isset($pdo) || !$pdo) {
 // Get filter parameters
 $filter_date_from = isset($_GET['filter_date_from']) ? $_GET['filter_date_from'] : date('Y-m-01');
 $filter_date_to = isset($_GET['filter_date_to']) ? $_GET['filter_date_to'] : date('Y-m-d');
-$view_mode = isset($_GET['view_mode']) ? $_GET['view_mode'] : 'daily'; // daily, weekly, monthly
+$view_mode = isset($_GET['view_mode']) ? $_GET['view_mode'] : 'daily';
 
 // Pagination settings
 $records_per_page = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 31;
@@ -190,111 +190,116 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $checkStmt->execute([':amount_date' => $amount_date]);
                 $existing = $checkStmt->fetch();
                 
-                if ($existing && $_POST['action'] === 'add') {
-                    $message = "Record for this date already exists!";
-                    $messageType = "danger";
-                } else {
-                    if ($existing) {
-                        // Update existing
-                        $updateStmt = $pdo->prepare("
-                            UPDATE daywise_amounts 
-                            SET opening_cash = :opening_cash,
-                                opening_bank = :opening_bank,
-                                cash_sales = :cash_sales,
-                                credit_sales = :credit_sales,
-                                cash_purchases = :cash_purchases,
-                                credit_purchases = :credit_purchases,
-                                expenses_cash = :expenses_cash,
-                                expenses_bank = :expenses_bank,
-                                cash_received = :cash_received,
-                                cash_paid = :cash_paid,
-                                bank_deposits = :bank_deposits,
-                                bank_withdrawals = :bank_withdrawals,
-                                closing_cash = :closing_cash,
-                                closing_bank = :closing_bank,
-                                updated_at = NOW(),
-                                updated_by = :updated_by
-                            WHERE id = :id
-                        ");
-                        $updateStmt->execute([
-                            ':opening_cash' => $opening_cash,
-                            ':opening_bank' => $opening_bank,
-                            ':cash_sales' => $cash_sales,
-                            ':credit_sales' => $credit_sales,
-                            ':cash_purchases' => $cash_purchases,
-                            ':credit_purchases' => $credit_purchases,
-                            ':expenses_cash' => $expenses_cash,
-                            ':expenses_bank' => $expenses_bank,
-                            ':cash_received' => $cash_received,
-                            ':cash_paid' => $cash_paid,
-                            ':bank_deposits' => $bank_deposits,
-                            ':bank_withdrawals' => $bank_withdrawals,
-                            ':closing_cash' => $closing_cash,
-                            ':closing_bank' => $closing_bank,
-                            ':updated_by' => $_SESSION['user_id'] ?? null,
-                            ':id' => $existing['id']
-                        ]);
-                        $message = "Daywise amounts updated successfully!";
-                        $messageType = "success";
+                if ($existing) {
+                    // Record exists - UPDATE instead of showing error
+                    if ($_POST['action'] === 'add') {
+                        // If trying to add but record exists, automatically switch to update
+                        $action_type = 'update';
                     } else {
-                        // Insert new
-                        $insertStmt = $pdo->prepare("
-                            INSERT INTO daywise_amounts (
-                                amount_date, opening_cash, opening_bank, cash_sales, credit_sales,
-                                cash_purchases, credit_purchases, expenses_cash, expenses_bank,
-                                cash_received, cash_paid, bank_deposits, bank_withdrawals,
-                                closing_cash, closing_bank, created_by, created_at
-                            ) VALUES (
-                                :amount_date, :opening_cash, :opening_bank, :cash_sales, :credit_sales,
-                                :cash_purchases, :credit_purchases, :expenses_cash, :expenses_bank,
-                                :cash_received, :cash_paid, :bank_deposits, :bank_withdrawals,
-                                :closing_cash, :closing_bank, :created_by, NOW()
-                            )
-                        ");
-                        $insertStmt->execute([
-                            ':amount_date' => $amount_date,
-                            ':opening_cash' => $opening_cash,
-                            ':opening_bank' => $opening_bank,
-                            ':cash_sales' => $cash_sales,
-                            ':credit_sales' => $credit_sales,
-                            ':cash_purchases' => $cash_purchases,
-                            ':credit_purchases' => $credit_purchases,
-                            ':expenses_cash' => $expenses_cash,
-                            ':expenses_bank' => $expenses_bank,
-                            ':cash_received' => $cash_received,
-                            ':cash_paid' => $cash_paid,
-                            ':bank_deposits' => $bank_deposits,
-                            ':bank_withdrawals' => $bank_withdrawals,
-                            ':closing_cash' => $closing_cash,
-                            ':closing_bank' => $closing_bank,
-                            ':created_by' => $_SESSION['user_id'] ?? null
-                        ]);
-                        $message = "Daywise amounts added successfully!";
-                        $messageType = "success";
+                        $action_type = 'update';
                     }
                     
-                    // Log activity
-                    $logStmt = $pdo->prepare("
-                        INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by)
-                        VALUES (:user_id, 3, :description, :activity_data, :created_by)
+                    // Update existing record
+                    $updateStmt = $pdo->prepare("
+                        UPDATE daywise_amounts 
+                        SET opening_cash = :opening_cash,
+                            opening_bank = :opening_bank,
+                            cash_sales = :cash_sales,
+                            credit_sales = :credit_sales,
+                            cash_purchases = :cash_purchases,
+                            credit_purchases = :credit_purchases,
+                            expenses_cash = :expenses_cash,
+                            expenses_bank = :expenses_bank,
+                            cash_received = :cash_received,
+                            cash_paid = :cash_paid,
+                            bank_deposits = :bank_deposits,
+                            bank_withdrawals = :bank_withdrawals,
+                            closing_cash = :closing_cash,
+                            closing_bank = :closing_bank,
+                            updated_at = NOW(),
+                            updated_by = :updated_by
+                        WHERE id = :id
                     ");
-                    $logStmt->execute([
-                        ':user_id' => $_SESSION['user_id'] ?? null,
-                        ':description' => "Daywise amounts " . ($existing ? 'updated' : 'added') . " for date: " . $amount_date,
-                        ':activity_data' => json_encode([
-                            'amount_date' => $amount_date,
-                            'closing_cash' => $closing_cash,
-                            'closing_bank' => $closing_bank
-                        ]),
+                    $updateStmt->execute([
+                        ':opening_cash' => $opening_cash,
+                        ':opening_bank' => $opening_bank,
+                        ':cash_sales' => $cash_sales,
+                        ':credit_sales' => $credit_sales,
+                        ':cash_purchases' => $cash_purchases,
+                        ':credit_purchases' => $credit_purchases,
+                        ':expenses_cash' => $expenses_cash,
+                        ':expenses_bank' => $expenses_bank,
+                        ':cash_received' => $cash_received,
+                        ':cash_paid' => $cash_paid,
+                        ':bank_deposits' => $bank_deposits,
+                        ':bank_withdrawals' => $bank_withdrawals,
+                        ':closing_cash' => $closing_cash,
+                        ':closing_bank' => $closing_bank,
+                        ':updated_by' => $_SESSION['user_id'] ?? null,
+                        ':id' => $existing['id']
+                    ]);
+                    $message = "Daywise amounts updated successfully!";
+                    $messageType = "success";
+                    
+                } else {
+                    // No existing record - insert new
+                    $insertStmt = $pdo->prepare("
+                        INSERT INTO daywise_amounts (
+                            amount_date, opening_cash, opening_bank, cash_sales, credit_sales,
+                            cash_purchases, credit_purchases, expenses_cash, expenses_bank,
+                            cash_received, cash_paid, bank_deposits, bank_withdrawals,
+                            closing_cash, closing_bank, created_by, created_at
+                        ) VALUES (
+                            :amount_date, :opening_cash, :opening_bank, :cash_sales, :credit_sales,
+                            :cash_purchases, :credit_purchases, :expenses_cash, :expenses_bank,
+                            :cash_received, :cash_paid, :bank_deposits, :bank_withdrawals,
+                            :closing_cash, :closing_bank, :created_by, NOW()
+                        )
+                    ");
+                    $insertStmt->execute([
+                        ':amount_date' => $amount_date,
+                        ':opening_cash' => $opening_cash,
+                        ':opening_bank' => $opening_bank,
+                        ':cash_sales' => $cash_sales,
+                        ':credit_sales' => $credit_sales,
+                        ':cash_purchases' => $cash_purchases,
+                        ':credit_purchases' => $credit_purchases,
+                        ':expenses_cash' => $expenses_cash,
+                        ':expenses_bank' => $expenses_bank,
+                        ':cash_received' => $cash_received,
+                        ':cash_paid' => $cash_paid,
+                        ':bank_deposits' => $bank_deposits,
+                        ':bank_withdrawals' => $bank_withdrawals,
+                        ':closing_cash' => $closing_cash,
+                        ':closing_bank' => $closing_bank,
                         ':created_by' => $_SESSION['user_id'] ?? null
                     ]);
-                    
-                    $pdo->commit();
-                    
-                    // Redirect to refresh page
-                    header("Location: daywise-amounts.php?filter_date_from=" . urlencode($filter_date_from) . "&filter_date_to=" . urlencode($filter_date_to) . "&view_mode=" . $view_mode . "&message=" . urlencode($message) . "&message_type=success");
-                    exit();
+                    $message = "Daywise amounts added successfully!";
+                    $messageType = "success";
                 }
+                
+                // Log activity
+                $logStmt = $pdo->prepare("
+                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by)
+                    VALUES (:user_id, 3, :description, :activity_data, :created_by)
+                ");
+                $logStmt->execute([
+                    ':user_id' => $_SESSION['user_id'] ?? null,
+                    ':description' => "Daywise amounts " . ($existing ? 'updated' : 'added') . " for date: " . $amount_date,
+                    ':activity_data' => json_encode([
+                        'amount_date' => $amount_date,
+                        'closing_cash' => $closing_cash,
+                        'closing_bank' => $closing_bank
+                    ]),
+                    ':created_by' => $_SESSION['user_id'] ?? null
+                ]);
+                
+                $pdo->commit();
+                
+                // Redirect to refresh page
+                header("Location: daywise-amounts.php?filter_date_from=" . urlencode($filter_date_from) . "&filter_date_to=" . urlencode($filter_date_to) . "&view_mode=" . $view_mode . "&message=" . urlencode($message) . "&message_type=success");
+                exit();
+                
             } elseif ($_POST['action'] === 'reconcile' && isset($_POST['record_id'])) {
                 // Check if reconciled column exists, if not add it
                 try {
@@ -511,6 +516,15 @@ if (isset($_GET['message'])) {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Chart JS -->
+    <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+</head>
 
 <body data-sidebar="dark">
 
@@ -1181,8 +1195,10 @@ if (isset($_GET['message'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- Chart JS -->
-<script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- Select2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     // Initialize tooltips
@@ -1373,13 +1389,24 @@ if (isset($_GET['message'])) {
 
     // Reconcile record
     function reconcileRecord(id) {
-        if (confirm('Mark this record as reconciled? This action cannot be undone.')) {
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = '<input type="hidden" name="action" value="reconcile"><input type="hidden" name="record_id" value="' + id + '">';
-            document.body.appendChild(form);
-            form.submit();
-        }
+        Swal.fire({
+            title: 'Reconcile Record?',
+            text: 'Mark this record as reconciled? This action cannot be undone.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#34c38f',
+            cancelButtonColor: '#556ee6',
+            confirmButtonText: 'Yes, reconcile!',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = '<input type="hidden" name="action" value="reconcile"><input type="hidden" name="record_id" value="' + id + '">';
+                document.body.appendChild(form);
+                form.submit();
+            }
+        });
     }
 
     // Update day name when date changes
@@ -1535,6 +1562,19 @@ function buildPaginationUrl($page, $params) {
     100% {
         transform: rotate(359deg);
     }
+}
+
+/* SweetAlert2 customization */
+.swal2-popup {
+    font-family: inherit;
+}
+
+.swal2-title {
+    font-size: 1.2rem;
+}
+
+.swal2-confirm {
+    background-color: #556ee6 !important;
 }
 </style>
 
