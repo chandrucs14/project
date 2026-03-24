@@ -10,8 +10,6 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
-
 $error = '';
 $success = '';
 
@@ -19,17 +17,15 @@ $success = '';
 $catStmt = $pdo->query("SELECT id, name FROM categories ORDER BY name");
 $categories = $catStmt->fetchAll();
 
-// Fetch GST details for dropdown
-$gstStmt = $pdo->query("SELECT id, gst_rate, hsn_code FROM gst_details WHERE is_active = 1 ORDER BY gst_rate");
-$gstDetails = $gstStmt->fetchAll();
-
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     // Get and sanitize form data
     $name = trim($_POST['name'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $category_id = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
-    $gst_id = !empty($_POST['gst_id']) ? (int)$_POST['gst_id'] : null;
+    $gst_rate = !empty($_POST['gst_rate']) ? floatval($_POST['gst_rate']) : null;
+    $gst_type = $_POST['gst_type'] ?? 'exclusive';
+    $hsn_code = trim($_POST['hsn_code'] ?? '');
     $unit = trim($_POST['unit'] ?? '');
     $selling_price = !empty($_POST['selling_price']) ? floatval($_POST['selling_price']) : null;
     $cost_price = !empty($_POST['cost_price']) ? floatval($_POST['cost_price']) : null;
@@ -50,6 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
         $error = "Reorder level cannot be negative.";
     } elseif ($current_stock < 0) {
         $error = "Current stock cannot be negative.";
+    } elseif ($gst_rate !== null && ($gst_rate < 0 || $gst_rate > 100)) {
+        $error = "GST rate must be between 0 and 100.";
     } else {
         try {
             $pdo->beginTransaction();
@@ -64,11 +62,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
             // Insert product
             $stmt = $pdo->prepare("
                 INSERT INTO products (
-                    name, description, category_id, gst_id, unit,
+                    name, description, category_id, gst_rate, gst_type, hsn_code, unit,
                     selling_price, cost_price, reorder_level, current_stock,
                     is_active, created_by, created_at
                 ) VALUES (
-                    :name, :description, :category_id, :gst_id, :unit,
+                    :name, :description, :category_id, :gst_rate, :gst_type, :hsn_code, :unit,
                     :selling_price, :cost_price, :reorder_level, :current_stock,
                     :is_active, :created_by, NOW()
                 )
@@ -78,7 +76,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
                 ':name' => $name,
                 ':description' => $description ?: null,
                 ':category_id' => $category_id,
-                ':gst_id' => $gst_id,
+                ':gst_rate' => $gst_rate,
+                ':gst_type' => $gst_type,
+                ':hsn_code' => $hsn_code ?: null,
                 ':unit' => $unit,
                 ':selling_price' => $selling_price,
                 ':cost_price' => $cost_price,
@@ -105,7 +105,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
                     'product_name' => $name,
                     'unit' => $unit,
                     'selling_price' => $selling_price,
-                    'cost_price' => $cost_price
+                    'cost_price' => $cost_price,
+                    'gst_rate' => $gst_rate,
+                    'gst_type' => $gst_type,
+                    'hsn_code' => $hsn_code
                 ]);
                 
                 $activity_stmt->execute([
@@ -160,6 +163,55 @@ function safe_echo($value) {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <style>
+        .gst-info-box {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .gst-preview {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .gst-badge {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .radio-group label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .radio-group input[type="radio"] {
+            cursor: pointer;
+        }
+    </style>
+</head>
 
 <body data-sidebar="dark">
 
@@ -280,7 +332,7 @@ function safe_echo($value) {
                                                   placeholder="Enter product description"><?= safe_echo($_POST['description'] ?? '') ?></textarea>
                                     </div>
 
-                                    <!-- Category and GST -->
+                                    <!-- Category -->
                                     <div class="row">
                                         <div class="col-md-6">
                                             <div class="mb-3">
@@ -298,27 +350,82 @@ function safe_echo($value) {
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+
+                                    <!-- GST Information Section -->
+                                    <div class="gst-info-box">
+                                        <h5 class="font-size-14 mb-3">
+                                            <i class="mdi mdi-percent me-2"></i>GST Information
+                                        </h5>
                                         
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label class="form-label">GST Rate</label>
-                                                <div class="input-group">
-                                                    <span class="input-group-text"><i class="mdi mdi-percent"></i></span>
-                                                    <select name="gst_id" class="form-control">
-                                                        <option value="">Select GST Rate</option>
-                                                        <?php foreach ($gstDetails as $gst): ?>
-                                                            <option value="<?= $gst['id'] ?>" <?= (isset($_POST['gst_id']) && $_POST['gst_id'] == $gst['id']) ? 'selected' : '' ?>>
-                                                                <?= $gst['gst_rate'] ?>% (<?= htmlspecialchars($gst['hsn_code']) ?>)
-                                                            </option>
-                                                        <?php endforeach; ?>
-                                                    </select>
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <div class="mb-3">
+                                                    <label class="form-label">GST Rate (%)</label>
+                                                    <input type="number" 
+                                                           name="gst_rate" 
+                                                           id="gst_rate"
+                                                           class="form-control" 
+                                                           placeholder="e.g., 18"
+                                                           min="0"
+                                                           max="100"
+                                                           step="0.01"
+                                                           value="<?= safe_echo($_POST['gst_rate'] ?? '') ?>">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="col-md-4">
+                                                <div class="mb-3">
+                                                    <label class="form-label">HSN/SAC Code</label>
+                                                    <input type="text" 
+                                                           name="hsn_code" 
+                                                           id="hsn_code"
+                                                           class="form-control" 
+                                                           placeholder="e.g., 68022190"
+                                                           value="<?= safe_echo($_POST['hsn_code'] ?? '') ?>">
+                                                    <small class="text-muted">Harmonized System of Nomenclature code</small>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="col-md-4">
+                                                <div class="mb-3">
+                                                    <label class="form-label">GST Type</label>
+                                                    <div class="radio-group">
+                                                        <label>
+                                                            <input type="radio" 
+                                                                   name="gst_type" 
+                                                                   value="exclusive" 
+                                                                   <?= (!isset($_POST['gst_type']) || $_POST['gst_type'] == 'exclusive') ? 'checked' : '' ?>>
+                                                            Exclusive (GST Extra)
+                                                        </label>
+                                                        <label>
+                                                            <input type="radio" 
+                                                                   name="gst_type" 
+                                                                   value="inclusive"
+                                                                   <?= (isset($_POST['gst_type']) && $_POST['gst_type'] == 'inclusive') ? 'checked' : '' ?>>
+                                                            Inclusive (GST Included)
+                                                        </label>
+                                                    </div>
+                                                    <small class="text-muted">
+                                                        Exclusive: GST added to price | Inclusive: GST included in price
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- GST Preview -->
+                                        <div class="gst-preview" id="gstPreview" style="display: none;">
+                                            <strong><i class="mdi mdi-calculator me-1"></i>GST Calculation Preview:</strong>
+                                            <div class="row mt-2">
+                                                <div class="col-md-12">
+                                                    <div id="gstPreviewDetails">-</div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
                                     <!-- Pricing Information -->
-                                    <h5 class="font-size-14 mb-3">Pricing Information</h5>
+                                    <h5 class="font-size-14 mb-3 mt-4">Pricing Information</h5>
                                     
                                     <div class="row">
                                         <div class="col-md-6">
@@ -328,6 +435,7 @@ function safe_echo($value) {
                                                     <span class="input-group-text"><i class="mdi mdi-currency-inr"></i></span>
                                                     <input type="number" 
                                                            name="selling_price" 
+                                                           id="selling_price"
                                                            class="form-control" 
                                                            placeholder="0.00"
                                                            min="0"
@@ -491,11 +599,11 @@ function safe_echo($value) {
                                     <div class="col-md-4">
                                         <div class="d-flex">
                                             <div class="flex-shrink-0 me-3">
-                                                <i class="mdi mdi-currency-inr text-success" style="font-size: 24px;"></i>
+                                                <i class="mdi mdi-percent text-success" style="font-size: 24px;"></i>
                                             </div>
                                             <div class="flex-grow-1">
-                                                <h6 class="mb-1">Pricing</h6>
-                                                <p class="text-muted">Selling price should be higher than cost price for profit</p>
+                                                <h6 class="mb-1">GST Information</h6>
+                                                <p class="text-muted">Provide correct GST rate and HSN code for accurate tax calculation</p>
                                             </div>
                                         </div>
                                     </div>
@@ -503,11 +611,11 @@ function safe_echo($value) {
                                     <div class="col-md-4">
                                         <div class="d-flex">
                                             <div class="flex-shrink-0 me-3">
-                                                <i class="mdi mdi-alert text-warning" style="font-size: 24px;"></i>
+                                                <i class="mdi mdi-calculator text-info" style="font-size: 24px;"></i>
                                             </div>
                                             <div class="flex-grow-1">
-                                                <h6 class="mb-1">Reorder Level</h6>
-                                                <p class="text-muted">Set reorder level to get alerts when stock is low</p>
+                                                <h6 class="mb-1">GST Type</h6>
+                                                <p class="text-muted">Choose Inclusive if GST is included in price, Exclusive if added separately</p>
                                             </div>
                                         </div>
                                     </div>
@@ -542,6 +650,51 @@ function safe_echo($value) {
 <script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
 
 <script>
+    // GST Preview functionality
+    function updateGSTPreview() {
+        const gstRate = parseFloat($('#gst_rate').val()) || 0;
+        const gstType = $('input[name="gst_type"]:checked').val();
+        const sellingPrice = parseFloat($('#selling_price').val()) || 100;
+        
+        if (gstRate > 0) {
+            let gstAmount, totalPrice;
+            
+            if (gstType === 'inclusive') {
+                // GST is included in price
+                gstAmount = (sellingPrice * gstRate) / (100 + gstRate);
+                totalPrice = sellingPrice;
+                $('#gstPreviewDetails').html(`
+                    <small>Price: ₹${sellingPrice.toFixed(2)} (Including GST)</small><br>
+                    <small>GST Amount: ₹${gstAmount.toFixed(2)} (${gstRate}%)</small><br>
+                    <small>Base Price: ₹${(sellingPrice - gstAmount).toFixed(2)}</small>
+                `);
+            } else {
+                // GST is exclusive
+                gstAmount = (sellingPrice * gstRate) / 100;
+                totalPrice = sellingPrice + gstAmount;
+                $('#gstPreviewDetails').html(`
+                    <small>Base Price: ₹${sellingPrice.toFixed(2)}</small><br>
+                    <small>GST Amount: ₹${gstAmount.toFixed(2)} (${gstRate}%)</small><br>
+                    <small>Total Price (with GST): ₹${totalPrice.toFixed(2)}</small>
+                `);
+            }
+            
+            $('#gstPreview').show();
+        } else {
+            $('#gstPreview').hide();
+        }
+    }
+    
+    // When GST rate or type changes
+    $('#gst_rate, input[name="gst_type"]').on('change input', function() {
+        updateGSTPreview();
+    });
+    
+    // When selling price changes
+    $('#selling_price').on('input', function() {
+        updateGSTPreview();
+    });
+    
     // Form submission loading state
     document.getElementById('productForm')?.addEventListener('submit', function(e) {
         const btn = document.getElementById('submitBtn');
@@ -570,6 +723,7 @@ function safe_echo($value) {
         }).then((result) => {
             if (result.isConfirmed) {
                 document.getElementById('productForm').reset();
+                $('#gstPreview').hide();
                 Swal.fire({
                     title: 'Reset!',
                     text: 'Form has been reset.',
@@ -645,10 +799,12 @@ function safe_echo($value) {
         const originalValues = {};
         
         formInputs.forEach(input => {
-            if (input.type !== 'checkbox') {
+            if (input.type !== 'checkbox' && input.type !== 'radio') {
                 originalValues[input.name] = input.value;
-            } else {
+            } else if (input.type === 'checkbox') {
                 originalValues[input.name] = input.checked;
+            } else if (input.type === 'radio' && input.checked) {
+                originalValues[input.name] = input.value;
             }
             
             input.addEventListener('change', () => {
@@ -662,12 +818,16 @@ function safe_echo($value) {
         function checkFormDirty() {
             formDirty = false;
             formInputs.forEach(input => {
-                if (input.type !== 'checkbox') {
+                if (input.type !== 'checkbox' && input.type !== 'radio') {
                     if (input.value !== originalValues[input.name]) {
                         formDirty = true;
                     }
-                } else {
+                } else if (input.type === 'checkbox') {
                     if (input.checked !== originalValues[input.name]) {
+                        formDirty = true;
+                    }
+                } else if (input.type === 'radio' && input.checked) {
+                    if (input.value !== originalValues[input.name]) {
                         formDirty = true;
                     }
                 }
@@ -707,6 +867,11 @@ function safe_echo($value) {
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
+    
+    // Initialize GST preview if values exist
+    if ($('#gst_rate').val() > 0) {
+        updateGSTPreview();
+    }
 </script>
 
 </body>

@@ -90,6 +90,10 @@
                 <span> Stock Management </span>
             </a>
             <ul class="sub-menu" aria-expanded="false">
+                <li><a href="daybook.php">Daybook</a></li>
+                 <li><a href="daybook-outstanding.php">Daybook Outstanding</a></li>
+                 <li><a href="daybook-invoices.php">Daybook invoices</a></li>
+                <li><a href="daybook-report.php">Daybook Report</a></li>
                 <li><a href="current-stock.php">Current Stock</a></li>
                 <li><a href="daywise-stock.php">Day-wise Stock</a></li>
                 <li><a href="stock-transactions.php">Stock Transactions</a></li>
@@ -107,6 +111,7 @@
                 <li><a href="add-expense.php">Add Expense</a></li>
                 <li><a href="manage-expenses.php">Manage Expenses</a></li>
                 <li><a href="expense-report.php">Expense Report</a></li>
+                
             </ul>
         </li>
 

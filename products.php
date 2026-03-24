@@ -10,8 +10,6 @@ if (!isset($pdo) || !$pdo) {
     die("Database connection not established. Please check config/database.php");
 }
 
-
-
 $error = '';
 $success = '';
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
@@ -20,156 +18,6 @@ $stock_status = isset($_GET['stock_status']) ? $_GET['stock_status'] : 'all';
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $limit = 10;
 $offset = ($page - 1) * $limit;
-
-// Handle add product
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
-    $name = trim($_POST['name'] ?? '');
-    $description = trim($_POST['description'] ?? '');
-    $category_id = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
-    $gst_id = !empty($_POST['gst_id']) ? (int)$_POST['gst_id'] : null;
-    $unit = trim($_POST['unit'] ?? '');
-    $selling_price = floatval($_POST['selling_price'] ?? 0);
-    $cost_price = floatval($_POST['cost_price'] ?? 0);
-    $reorder_level = floatval($_POST['reorder_level'] ?? 0);
-    $current_stock = floatval($_POST['current_stock'] ?? 0);
-    
-    if (empty($name)) {
-        $error = "Product name is required.";
-    } elseif (empty($unit)) {
-        $error = "Unit is required.";
-    } else {
-        try {
-            $pdo->beginTransaction();
-            
-            // Check if product name already exists
-            $checkStmt = $pdo->prepare("SELECT id FROM products WHERE name = ?");
-            $checkStmt->execute([$name]);
-            if ($checkStmt->fetch()) {
-                throw new Exception("A product with this name already exists.");
-            }
-            
-            $stmt = $pdo->prepare("
-                INSERT INTO products (name, description, category_id, gst_id, unit, 
-                    selling_price, cost_price, reorder_level, current_stock, 
-                    is_active, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())
-            ");
-            
-            $result = $stmt->execute([
-                $name, $description ?: null, $category_id, $gst_id, $unit,
-                $selling_price ?: null, $cost_price ?: null, $reorder_level ?: null,
-                $current_stock ?: 0, $_SESSION['user_id']
-            ]);
-            
-            if ($result) {
-                $product_id = $pdo->lastInsertId();
-                
-                // Log activity
-                $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 3, ?, ?, NOW())
-                ");
-                
-                $activity_data = json_encode([
-                    'product_id' => $product_id,
-                    'product_name' => $name
-                ]);
-                
-                $activity_stmt->execute([
-                    $_SESSION['user_id'],
-                    'New product created: ' . $name,
-                    $activity_data
-                ]);
-                
-                $pdo->commit();
-                $_SESSION['success_message'] = "Product created successfully.";
-                header("Location: products.php");
-                exit();
-            }
-            
-        } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $error = $e->getMessage();
-        }
-    }
-}
-
-// Handle edit product
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_product'])) {
-    $product_id = (int)$_POST['product_id'];
-    $name = trim($_POST['name'] ?? '');
-    $description = trim($_POST['description'] ?? '');
-    $category_id = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
-    $gst_id = !empty($_POST['gst_id']) ? (int)$_POST['gst_id'] : null;
-    $unit = trim($_POST['unit'] ?? '');
-    $selling_price = floatval($_POST['selling_price'] ?? 0);
-    $cost_price = floatval($_POST['cost_price'] ?? 0);
-    $reorder_level = floatval($_POST['reorder_level'] ?? 0);
-    $is_active = isset($_POST['is_active']) ? 1 : 0;
-    
-    if (empty($name)) {
-        $error = "Product name is required.";
-    } elseif (empty($unit)) {
-        $error = "Unit is required.";
-    } else {
-        try {
-            $pdo->beginTransaction();
-            
-            // Check if product name already exists for another product
-            $checkStmt = $pdo->prepare("SELECT id FROM products WHERE name = ? AND id != ?");
-            $checkStmt->execute([$name, $product_id]);
-            if ($checkStmt->fetch()) {
-                throw new Exception("A product with this name already exists.");
-            }
-            
-            $stmt = $pdo->prepare("
-                UPDATE products SET 
-                    name = ?, description = ?, category_id = ?, gst_id = ?, unit = ?,
-                    selling_price = ?, cost_price = ?, reorder_level = ?, is_active = ?,
-                    updated_by = ?, updated_at = NOW()
-                WHERE id = ?
-            ");
-            
-            $result = $stmt->execute([
-                $name, $description ?: null, $category_id, $gst_id, $unit,
-                $selling_price ?: null, $cost_price ?: null, $reorder_level ?: null,
-                $is_active, $_SESSION['user_id'], $product_id
-            ]);
-            
-            if ($result) {
-                // Log activity
-                $activity_stmt = $pdo->prepare("
-                    INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
-                    VALUES (?, 4, ?, ?, NOW())
-                ");
-                
-                $activity_data = json_encode([
-                    'product_id' => $product_id,
-                    'product_name' => $name
-                ]);
-                
-                $activity_stmt->execute([
-                    $_SESSION['user_id'],
-                    'Product updated: ' . $name,
-                    $activity_data
-                ]);
-                
-                $pdo->commit();
-                $_SESSION['success_message'] = "Product updated successfully.";
-                header("Location: products.php");
-                exit();
-            }
-            
-        } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $error = $e->getMessage();
-        }
-    }
-}
 
 // Handle delete
 if (isset($_GET['delete']) && isset($_GET['id'])) {
@@ -188,7 +36,12 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
         $checkOrderStmt->execute([$product_id]);
         $orderCount = $checkOrderStmt->fetchColumn();
         
-        if ($invoiceCount > 0 || $orderCount > 0) {
+        // Check if product has any daybook items
+        $checkDaybookStmt = $pdo->prepare("SELECT COUNT(*) FROM daybook_items WHERE product_id = ?");
+        $checkDaybookStmt->execute([$product_id]);
+        $daybookCount = $checkDaybookStmt->fetchColumn();
+        
+        if ($invoiceCount > 0 || $orderCount > 0 || $daybookCount > 0) {
             throw new Exception("Cannot delete product because it has associated transactions.");
         }
         
@@ -236,10 +89,9 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
 }
 
 // Build query
-$query = "SELECT p.*, c.name as category_name, g.gst_rate, g.hsn_code, u.full_name as created_by_name 
+$query = "SELECT p.*, c.name as category_name, u.full_name as created_by_name 
           FROM products p 
           LEFT JOIN categories c ON p.category_id = c.id 
-          LEFT JOIN gst_details g ON p.gst_id = g.id 
           LEFT JOIN users u ON p.created_by = u.id 
           WHERE 1=1";
 $countQuery = "SELECT COUNT(*) FROM products WHERE 1=1";
@@ -283,14 +135,11 @@ $products = $stmt->fetchAll();
 $catStmt = $pdo->query("SELECT id, name FROM categories ORDER BY name");
 $categories = $catStmt->fetchAll();
 
-// Get GST details for dropdown
-$gstStmt = $pdo->query("SELECT id, gst_rate, hsn_code FROM gst_details WHERE is_active = 1 ORDER BY gst_rate");
-$gstDetails = $gstStmt->fetchAll();
-
 // Get statistics
 $statsStmt = $pdo->query("
     SELECT 
         COUNT(*) as total,
+        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active,
         SUM(CASE WHEN current_stock <= reorder_level AND reorder_level > 0 THEN 1 ELSE 0 END) as low_stock,
         SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) as out_of_stock
     FROM products
@@ -306,11 +155,107 @@ if (isset($_SESSION['error_message'])) {
     $error = $_SESSION['error_message'];
     unset($_SESSION['error_message']);
 }
+
+// Helper function for safe output
+function safe_echo($value) {
+    return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
+}
 ?>
 <!doctype html>
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <style>
+        .stats-card {
+            transition: all 0.3s;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+        
+        .gst-badge {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .stock-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .stock-normal {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        
+        .stock-low {
+            background-color: #fed7aa;
+            color: #92400e;
+        }
+        
+        .stock-out {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .status-active {
+            background-color: #d1fae5;
+            color: #065f46;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .status-inactive {
+            background-color: #fee2e2;
+            color: #991b1b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .table td {
+            vertical-align: middle;
+        }
+        
+        .product-name {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .product-description {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        .action-buttons {
+            white-space: nowrap;
+        }
+        
+        .action-buttons .btn {
+            margin: 0 2px;
+        }
+    </style>
+</head>
 
 <body data-sidebar="dark">
 
@@ -374,27 +319,63 @@ if (isset($_SESSION['error_message'])) {
 
                 <!-- Statistics Cards -->
                 <div class="row">
-                    <div class="col-md-4">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-info mt-2"><?= number_format($stats['total'] ?? 0) ?></h3>
-                                Total Products
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <i class="mdi mdi-package-variant" style="font-size: 32px; color: #667eea;"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="mb-1"><?= number_format($stats['total'] ?? 0) ?></h5>
+                                        <p class="text-muted mb-0">Total Products</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-warning mt-2"><?= number_format($stats['low_stock'] ?? 0) ?></h3>
-                                Low Stock
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <i class="mdi mdi-check-circle" style="font-size: 32px; color: #10b981;"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="mb-1"><?= number_format($stats['active'] ?? 0) ?></h5>
+                                        <p class="text-muted mb-0">Active Products</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="card text-center">
-                            <div class="mb-2 card-body text-muted">
-                                <h3 class="text-danger mt-2"><?= number_format($stats['out_of_stock'] ?? 0) ?></h3>
-                                Out of Stock
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <i class="mdi mdi-alert" style="font-size: 32px; color: #f59e0b;"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="mb-1"><?= number_format($stats['low_stock'] ?? 0) ?></h5>
+                                        <p class="text-muted mb-0">Low Stock</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0 me-3">
+                                        <i class="mdi mdi-close-circle" style="font-size: 32px; color: #ef4444;"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="mb-1"><?= number_format($stats['out_of_stock'] ?? 0) ?></h5>
+                                        <p class="text-muted mb-0">Out of Stock</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -406,18 +387,19 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body">
-                                <div class="row">
+                                <div class="row align-items-end">
                                     <div class="col-md-9">
                                         <form method="GET" action="" id="filterForm">
                                             <div class="row">
-                                                <div class="col-md-4">
+                                                <div class="col-md-5">
                                                     <div class="mb-3">
                                                         <label class="form-label">Search</label>
                                                         <input type="text" class="form-control" name="search" 
-                                                               placeholder="Search products..." value="<?= htmlspecialchars($search) ?>">
+                                                               placeholder="Search by name or description..." 
+                                                               value="<?= safe_echo($search) ?>">
                                                     </div>
                                                 </div>
-                                                <div class="col-md-3">
+                                                <div class="col-md-4">
                                                     <div class="mb-3">
                                                         <label class="form-label">Category</label>
                                                         <select name="category" class="form-control">
@@ -434,17 +416,21 @@ if (isset($_SESSION['error_message'])) {
                                                     <div class="mb-3">
                                                         <label class="form-label">Stock Status</label>
                                                         <select name="stock_status" class="form-control">
-                                                            <option value="all" <?= $stock_status === 'all' ? 'selected' : '' ?>>All</option>
+                                                            <option value="all" <?= $stock_status === 'all' ? 'selected' : '' ?>>All Products</option>
                                                             <option value="low" <?= $stock_status === 'low' ? 'selected' : '' ?>>Low Stock</option>
                                                             <option value="out" <?= $stock_status === 'out' ? 'selected' : '' ?>>Out of Stock</option>
                                                         </select>
                                                     </div>
                                                 </div>
-                                                <div class="col-md-2">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">&nbsp;</label>
-                                                        <button type="submit" class="btn btn-primary w-100">Filter</button>
-                                                    </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col-12">
+                                                    <button type="submit" class="btn btn-primary">
+                                                        <i class="mdi mdi-magnify me-1"></i> Apply Filters
+                                                    </button>
+                                                    <a href="products.php" class="btn btn-secondary ms-2">
+                                                        <i class="mdi mdi-refresh me-1"></i> Reset
+                                                    </a>
                                                 </div>
                                             </div>
                                         </form>
@@ -452,7 +438,7 @@ if (isset($_SESSION['error_message'])) {
                                     <div class="col-md-3">
                                         <div class="text-md-end mt-3 mt-md-0">
                                             <a href="add-product.php" class="btn btn-success">
-                                                <i class="mdi mdi-package-variant-plus me-1"></i> Add Product
+                                                <i class="mdi mdi-plus me-1"></i> Add Product
                                             </a>
                                         </div>
                                     </div>
@@ -471,16 +457,19 @@ if (isset($_SESSION['error_message'])) {
                                 
                                 <?php if (empty($products)): ?>
                                     <div class="text-center py-5">
-                                        <i class="mdi mdi-package-variant" style="font-size: 48px; color: #ccc;"></i>
-                                        <h5 class="mt-3">No products found</h5>
-                                        <a href="add-product.php" class="btn btn-primary mt-2">Add Product</a>
+                                        <i class="mdi mdi-package-variant" style="font-size: 64px; color: #dee2e6;"></i>
+                                        <h5 class="mt-3 text-muted">No products found</h5>
+                                        <p class="text-muted">Try adjusting your search or filter criteria</p>
+                                        <a href="add-product.php" class="btn btn-primary mt-2">
+                                            <i class="mdi mdi-plus"></i> Add Your First Product
+                                        </a>
                                     </div>
                                 <?php else: ?>
                                     <div class="table-responsive">
-                                        <table class="table table-centered table-nowrap mb-0">
-                                            <thead class="thead-light">
+                                        <table class="table table-hover table-centered mb-0">
+                                            <thead class="table-light">
                                                 <tr>
-                                                    <th>Product</th>
+                                                    <th>Product Details</th>
                                                     <th>Category</th>
                                                     <th>Unit</th>
                                                     <th>Price</th>
@@ -495,36 +484,67 @@ if (isset($_SESSION['error_message'])) {
                                                 <?php foreach ($products as $product): ?>
                                                     <tr>
                                                         <td>
-                                                            <strong><?= htmlspecialchars($product['name']) ?></strong>
-                                                            <br><small class="text-muted"><?= htmlspecialchars($product['description'] ?? '') ?></small>
-                                                        </td>
-                                                        <td><?= htmlspecialchars($product['category_name'] ?? 'N/A') ?></td>
-                                                        <td><?= htmlspecialchars($product['unit']) ?></td>
-                                                        <td>₹<?= number_format($product['selling_price'] ?? 0, 2) ?></td>
-                                                        <td>₹<?= number_format($product['cost_price'] ?? 0, 2) ?></td>
-                                                        <td>
-                                                            <?= number_format($product['current_stock']) ?>
-                                                            <?php if ($product['current_stock'] <= $product['reorder_level'] && $product['reorder_level'] > 0): ?>
-                                                                <span class="badge bg-soft-danger text-danger ms-1">Low</span>
+                                                            <div class="product-name"><?= htmlspecialchars($product['name']) ?></div>
+                                                            <?php if (!empty($product['description'])): ?>
+                                                                <div class="product-description"><?= htmlspecialchars(substr($product['description'], 0, 50)) ?></div>
                                                             <?php endif; ?>
                                                         </td>
-                                                        <td><?= $product['gst_rate'] ? $product['gst_rate'] . '%' : 'N/A' ?></td>
+                                                        <td>
+                                                            <?= htmlspecialchars($product['category_name'] ?? 'N/A') ?>
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-soft-info"><?= htmlspecialchars($product['unit']) ?></span>
+                                                        </td>
+                                                        <td>
+                                                            <strong>₹<?= number_format($product['selling_price'] ?? 0, 2) ?></strong>
+                                                        </td>
+                                                        <td>
+                                                            <?= $product['cost_price'] ? '₹' . number_format($product['cost_price'], 2) : 'N/A' ?>
+                                                        </td>
+                                                        <td>
+                                                            <?php
+                                                            $stockClass = 'stock-normal';
+                                                            $stockText = number_format($product['current_stock']);
+                                                            if ($product['current_stock'] <= 0) {
+                                                                $stockClass = 'stock-out';
+                                                                $stockText .= ' (Out)';
+                                                            } elseif ($product['current_stock'] <= $product['reorder_level'] && $product['reorder_level'] > 0) {
+                                                                $stockClass = 'stock-low';
+                                                                $stockText .= ' (Low)';
+                                                            }
+                                                            ?>
+                                                            <span class="stock-badge <?= $stockClass ?>"><?= $stockText ?></span>
+                                                        </td>
+                                                        <td>
+                                                            <?php if ($product['gst_rate']): ?>
+                                                                <span class="gst-badge"><?= $product['gst_rate'] ?>%</span>
+                                                                <br>
+                                                                <small class="text-muted"><?= $product['gst_type'] == 'inclusive' ? 'Inclusive' : 'Exclusive' ?></small>
+                                                            <?php else: ?>
+                                                                <span class="text-muted">N/A</span>
+                                                            <?php endif; ?>
+                                                        </td>
                                                         <td>
                                                             <?php if ($product['is_active']): ?>
-                                                                <span class="badge bg-soft-success text-success">Active</span>
+                                                                <span class="status-active">Active</span>
                                                             <?php else: ?>
-                                                                <span class="badge bg-soft-danger text-danger">Inactive</span>
+                                                                <span class="status-inactive">Inactive</span>
                                                             <?php endif; ?>
                                                         </td>
-                                                        <td>
-                                                            <a href="edit-product.php?id=<?= $product['id'] ?>" class="btn btn-sm btn-soft-primary">
+                                                        <td class="action-buttons">
+                                                            <a href="edit-product.php?id=<?= $product['id'] ?>" 
+                                                               class="btn btn-sm btn-soft-primary" 
+                                                               data-bs-toggle="tooltip" 
+                                                               title="Edit Product">
                                                                 <i class="mdi mdi-pencil"></i>
                                                             </a>
-                                                            <a href="javascript:void(0);" 
-                                                               onclick="confirmDelete(<?= $product['id'] ?>, '<?= htmlspecialchars(addslashes($product['name'])) ?>')"
-                                                               class="btn btn-sm btn-soft-danger">
+                                                            <button type="button" 
+                                                                    onclick="confirmDelete(<?= $product['id'] ?>, '<?= htmlspecialchars(addslashes($product['name'])) ?>')"
+                                                                    class="btn btn-sm btn-soft-danger"
+                                                                    data-bs-toggle="tooltip" 
+                                                                    title="Delete Product">
                                                                 <i class="mdi mdi-delete"></i>
-                                                            </a>
+                                                            </button>
                                                         </td>
                                                     </tr>
                                                 <?php endforeach; ?>
@@ -547,11 +567,32 @@ if (isset($_SESSION['error_message'])) {
                                                             <i class="mdi mdi-chevron-left"></i>
                                                         </a>
                                                     </li>
-                                                    <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+                                                    <?php 
+                                                    $startPage = max(1, $page - 2);
+                                                    $endPage = min($totalPages, $page + 2);
+                                                    if ($startPage > 1): ?>
+                                                        <li class="page-item">
+                                                            <a class="page-link" href="?page=1&search=<?= urlencode($search) ?>&category=<?= $category ?>&stock_status=<?= $stock_status ?>">1</a>
+                                                        </li>
+                                                        <?php if ($startPage > 2): ?>
+                                                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                                                        <?php endif; ?>
+                                                    <?php endif; ?>
+                                                    
+                                                    <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
                                                         <li class="page-item <?= $i === $page ? 'active' : '' ?>">
                                                             <a class="page-link" href="?page=<?= $i ?>&search=<?= urlencode($search) ?>&category=<?= $category ?>&stock_status=<?= $stock_status ?>"><?= $i ?></a>
                                                         </li>
                                                     <?php endfor; ?>
+                                                    
+                                                    <?php if ($endPage < $totalPages): ?>
+                                                        <?php if ($endPage < $totalPages - 1): ?>
+                                                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                                                        <?php endif; ?>
+                                                        <li class="page-item">
+                                                            <a class="page-link" href="?page=<?= $totalPages ?>&search=<?= urlencode($search) ?>&category=<?= $category ?>&stock_status=<?= $stock_status ?>"><?= $totalPages ?></a>
+                                                        </li>
+                                                    <?php endif; ?>
                                                     <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
                                                         <a class="page-link" href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>&category=<?= $category ?>&stock_status=<?= $stock_status ?>">
                                                             <i class="mdi mdi-chevron-right"></i>
@@ -562,6 +603,28 @@ if (isset($_SESSION['error_message'])) {
                                         </div>
                                     <?php endif; ?>
                                 <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Export Section -->
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title mb-3">Quick Actions</h5>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button type="button" class="btn btn-outline-secondary" onclick="window.print()">
+                                        <i class="mdi mdi-printer me-1"></i> Print List
+                                    </button>
+                                    <a href="export-products.php" class="btn btn-outline-success">
+                                        <i class="mdi mdi-file-excel me-1"></i> Export to Excel
+                                    </a>
+                                    <a href="add-product.php" class="btn btn-outline-primary">
+                                        <i class="mdi mdi-plus me-1"></i> Add New Product
+                                    </a>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -585,25 +648,44 @@ if (isset($_SESSION['error_message'])) {
     function confirmDelete(id, name) {
         Swal.fire({
             title: 'Delete Product?',
-            html: `Are you sure you want to delete <strong>${name}</strong>?`,
+            html: `Are you sure you want to delete <strong>${name}</strong>?<br><br>
+                   <span class="text-danger">This action cannot be undone.</span>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#f46a6a',
             confirmButtonText: 'Yes, delete it!',
-            cancelButtonText: 'Cancel'
+            cancelButtonText: 'Cancel',
+            reverseButtons: true
         }).then((result) => {
             if (result.isConfirmed) {
-                window.location.href = `products.php?delete=1&id=${id}`;
+                window.location.href = `products.php?delete=1&id=${id}&search=<?= urlencode($search) ?>&category=<?= $category ?>&stock_status=<?= $stock_status ?>&page=<?= $page ?>`;
             }
         });
     }
 
-    // Auto-submit on filter change
+    // Auto-submit on filter change (optional)
     document.querySelector('select[name="category"]')?.addEventListener('change', function() {
         document.getElementById('filterForm').submit();
     });
     document.querySelector('select[name="stock_status"]')?.addEventListener('change', function() {
         document.getElementById('filterForm').submit();
+    });
+    
+    // Auto-hide alerts after 5 seconds
+    setTimeout(function() {
+        document.querySelectorAll('.alert').forEach(function(alert) {
+            alert.style.transition = 'opacity 0.5s';
+            alert.style.opacity = '0';
+            setTimeout(function() {
+                if (alert.parentNode) alert.remove();
+            }, 500);
+        });
+    }, 5000);
+    
+    // Initialize tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 </script>
 
