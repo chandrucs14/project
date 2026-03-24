@@ -15,13 +15,37 @@ $report_type = isset($_GET['report_type']) ? $_GET['report_type'] : 'customer'; 
 $as_on_date = isset($_GET['as_on_date']) ? $_GET['as_on_date'] : date('Y-m-d');
 $customer_id = isset($_GET['customer_id']) ? $_GET['customer_id'] : '';
 $supplier_id = isset($_GET['supplier_id']) ? $_GET['supplier_id'] : '';
-$aging_buckets = isset($_GET['aging_buckets']) ? $_GET['aging_buckets'] : '0-30,31-60,61-90,91-180,180+';
+$aging_buckets = isset($_GET['aging_buckets']) ? $_GET['aging_buckets'] : '0-1,1-3,3-6,6-12,12+';
 $min_amount = isset($_GET['min_amount']) ? floatval($_GET['min_amount']) : 0;
 $status = isset($_GET['status']) ? $_GET['status'] : 'all'; // all, overdue, due
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
-// Parse aging buckets
+// Parse aging buckets (in months)
 $buckets = explode(',', $aging_buckets);
+$bucket_labels = [
+    '0-1' => '0-1 Month',
+    '1-3' => '1-3 Months',
+    '3-6' => '3-6 Months',
+    '6-12' => '6-12 Months',
+    '12+' => '12+ Months'
+];
+
+// Function to calculate months difference
+function monthsDifference($date1, $date2) {
+    $d1 = new DateTime($date1);
+    $d2 = new DateTime($date2);
+    $diff = $d1->diff($d2);
+    return ($diff->y * 12) + $diff->m;
+}
+
+// Function to get aging bucket based on months overdue
+function getAgingBucket($months_overdue, $buckets) {
+    if ($months_overdue <= 1) return '0-1';
+    if ($months_overdue <= 3) return '1-3';
+    if ($months_overdue <= 6) return '3-6';
+    if ($months_overdue <= 12) return '6-12';
+    return '12+';
+}
 
 // Handle AJAX request for customer details
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'customer_details' && isset($_GET['customer_id'])) {
@@ -60,6 +84,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'customer_details' && isset($_GET[
                 paid_amount,
                 outstanding_amount,
                 DATEDIFF(:as_on_date, due_date) as days_overdue,
+                TIMESTAMPDIFF(MONTH, due_date, :as_on_date) as months_overdue,
                 status
             FROM invoices
             WHERE customer_id = :customer_id
@@ -143,7 +168,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'supplier_details' && isset($_GET[
                 DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY) as due_date,
                 po.total_amount,
                 po.status,
-                DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) as days_overdue
+                DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) as days_overdue,
+                TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) as months_overdue
             FROM purchase_orders po
             JOIN suppliers s ON po.supplier_id = s.id
             WHERE po.supplier_id = :supplier_id
@@ -183,13 +209,13 @@ function getCustomerAging($pdo, $customer_id, $as_on_date) {
                 i.paid_amount,
                 i.outstanding_amount,
                 DATEDIFF(:as_on_date, i.due_date) as days_overdue,
+                TIMESTAMPDIFF(MONTH, i.due_date, :as_on_date) as months_overdue,
                 CASE 
-                    WHEN DATEDIFF(:as_on_date, i.due_date) <= 0 THEN 'current'
-                    WHEN DATEDIFF(:as_on_date, i.due_date) BETWEEN 1 AND 30 THEN '1-30'
-                    WHEN DATEDIFF(:as_on_date, i.due_date) BETWEEN 31 AND 60 THEN '31-60'
-                    WHEN DATEDIFF(:as_on_date, i.due_date) BETWEEN 61 AND 90 THEN '61-90'
-                    WHEN DATEDIFF(:as_on_date, i.due_date) BETWEEN 91 AND 180 THEN '91-180'
-                    ELSE '180+'
+                    WHEN TIMESTAMPDIFF(MONTH, i.due_date, :as_on_date) <= 1 THEN '0-1'
+                    WHEN TIMESTAMPDIFF(MONTH, i.due_date, :as_on_date) <= 3 THEN '1-3'
+                    WHEN TIMESTAMPDIFF(MONTH, i.due_date, :as_on_date) <= 6 THEN '3-6'
+                    WHEN TIMESTAMPDIFF(MONTH, i.due_date, :as_on_date) <= 12 THEN '6-12'
+                    ELSE '12+'
                 END as aging_bucket
             FROM invoices i
             WHERE i.customer_id = :customer_id
@@ -209,12 +235,11 @@ function getCustomerAging($pdo, $customer_id, $as_on_date) {
         
         // Calculate aging buckets
         $aging = [
-            'current' => 0,
-            '1-30' => 0,
-            '31-60' => 0,
-            '61-90' => 0,
-            '91-180' => 0,
-            '180+' => 0,
+            '0-1' => 0,
+            '1-3' => 0,
+            '3-6' => 0,
+            '6-12' => 0,
+            '12+' => 0,
             'total' => 0,
             'invoices' => $invoices
         ];
@@ -223,13 +248,9 @@ function getCustomerAging($pdo, $customer_id, $as_on_date) {
             $amount = floatval($inv['outstanding_amount']);
             $aging['total'] += $amount;
             
-            if ($inv['days_overdue'] <= 0) {
-                $aging['current'] += $amount;
-            } else {
-                $bucket = $inv['aging_bucket'];
-                if (isset($aging[$bucket])) {
-                    $aging[$bucket] += $amount;
-                }
+            $bucket = $inv['aging_bucket'];
+            if (isset($aging[$bucket])) {
+                $aging[$bucket] += $amount;
             }
         }
         
@@ -238,12 +259,11 @@ function getCustomerAging($pdo, $customer_id, $as_on_date) {
     } catch (Exception $e) {
         error_log("Customer aging error: " . $e->getMessage());
         return [
-            'current' => 0,
-            '1-30' => 0,
-            '31-60' => 0,
-            '61-90' => 0,
-            '91-180' => 0,
-            '180+' => 0,
+            '0-1' => 0,
+            '1-3' => 0,
+            '3-6' => 0,
+            '6-12' => 0,
+            '12+' => 0,
             'total' => 0,
             'invoices' => []
         ];
@@ -262,13 +282,13 @@ function getSupplierAging($pdo, $supplier_id, $as_on_date) {
                 po.total_amount,
                 po.status,
                 DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) as days_overdue,
+                TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) as months_overdue,
                 CASE 
-                    WHEN DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) <= 0 THEN 'current'
-                    WHEN DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) BETWEEN 1 AND 30 THEN '1-30'
-                    WHEN DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) BETWEEN 31 AND 60 THEN '31-60'
-                    WHEN DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) BETWEEN 61 AND 90 THEN '61-90'
-                    WHEN DATEDIFF(:as_on_date, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY)) BETWEEN 91 AND 180 THEN '91-180'
-                    ELSE '180+'
+                    WHEN TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) <= 1 THEN '0-1'
+                    WHEN TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) <= 3 THEN '1-3'
+                    WHEN TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) <= 6 THEN '3-6'
+                    WHEN TIMESTAMPDIFF(MONTH, DATE_ADD(po.order_date, INTERVAL COALESCE(s.payment_terms, 30) DAY), :as_on_date) <= 12 THEN '6-12'
+                    ELSE '12+'
                 END as aging_bucket
             FROM purchase_orders po
             JOIN suppliers s ON po.supplier_id = s.id
@@ -289,12 +309,11 @@ function getSupplierAging($pdo, $supplier_id, $as_on_date) {
         
         // Calculate aging buckets
         $aging = [
-            'current' => 0,
-            '1-30' => 0,
-            '31-60' => 0,
-            '61-90' => 0,
-            '91-180' => 0,
-            '180+' => 0,
+            '0-1' => 0,
+            '1-3' => 0,
+            '3-6' => 0,
+            '6-12' => 0,
+            '12+' => 0,
             'total' => 0,
             'orders' => $orders
         ];
@@ -303,13 +322,9 @@ function getSupplierAging($pdo, $supplier_id, $as_on_date) {
             $amount = floatval($order['total_amount']);
             $aging['total'] += $amount;
             
-            if ($order['days_overdue'] <= 0) {
-                $aging['current'] += $amount;
-            } else {
-                $bucket = $order['aging_bucket'];
-                if (isset($aging[$bucket])) {
-                    $aging[$bucket] += $amount;
-                }
+            $bucket = $order['aging_bucket'];
+            if (isset($aging[$bucket])) {
+                $aging[$bucket] += $amount;
             }
         }
         
@@ -318,12 +333,11 @@ function getSupplierAging($pdo, $supplier_id, $as_on_date) {
     } catch (Exception $e) {
         error_log("Supplier aging error: " . $e->getMessage());
         return [
-            'current' => 0,
-            '1-30' => 0,
-            '31-60' => 0,
-            '61-90' => 0,
-            '91-180' => 0,
-            '180+' => 0,
+            '0-1' => 0,
+            '1-3' => 0,
+            '3-6' => 0,
+            '6-12' => 0,
+            '12+' => 0,
             'total' => 0,
             'orders' => []
         ];
@@ -364,20 +378,18 @@ $supplier_data = [];
 $total_customer_outstanding = 0;
 $total_supplier_outstanding = 0;
 $customer_aging_summary = [
-    'current' => 0,
-    '1-30' => 0,
-    '31-60' => 0,
-    '61-90' => 0,
-    '91-180' => 0,
-    '180+' => 0
+    '0-1' => 0,
+    '1-3' => 0,
+    '3-6' => 0,
+    '6-12' => 0,
+    '12+' => 0
 ];
 $supplier_aging_summary = [
-    'current' => 0,
-    '1-30' => 0,
-    '31-60' => 0,
-    '61-90' => 0,
-    '91-180' => 0,
-    '180+' => 0
+    '0-1' => 0,
+    '1-3' => 0,
+    '3-6' => 0,
+    '6-12' => 0,
+    '12+' => 0
 ];
 
 try {
@@ -446,12 +458,11 @@ try {
             $total_customer_outstanding += floatval($customer['outstanding_balance']);
             
             // Add to aging summary
-            $customer_aging_summary['current'] += $aging['current'];
-            $customer_aging_summary['1-30'] += $aging['1-30'];
-            $customer_aging_summary['31-60'] += $aging['31-60'];
-            $customer_aging_summary['61-90'] += $aging['61-90'];
-            $customer_aging_summary['91-180'] += $aging['91-180'];
-            $customer_aging_summary['180+'] += $aging['180+'];
+            $customer_aging_summary['0-1'] += $aging['0-1'];
+            $customer_aging_summary['1-3'] += $aging['1-3'];
+            $customer_aging_summary['3-6'] += $aging['3-6'];
+            $customer_aging_summary['6-12'] += $aging['6-12'];
+            $customer_aging_summary['12+'] += $aging['12+'];
         }
     }
     
@@ -505,20 +516,19 @@ try {
             $total_supplier_outstanding += floatval($supplier['outstanding_balance']);
             
             // Add to aging summary
-            $supplier_aging_summary['current'] += $aging['current'];
-            $supplier_aging_summary['1-30'] += $aging['1-30'];
-            $supplier_aging_summary['31-60'] += $aging['31-60'];
-            $supplier_aging_summary['61-90'] += $aging['61-90'];
-            $supplier_aging_summary['91-180'] += $aging['91-180'];
-            $supplier_aging_summary['180+'] += $aging['180+'];
+            $supplier_aging_summary['0-1'] += $aging['0-1'];
+            $supplier_aging_summary['1-3'] += $aging['1-3'];
+            $supplier_aging_summary['3-6'] += $aging['3-6'];
+            $supplier_aging_summary['6-12'] += $aging['6-12'];
+            $supplier_aging_summary['12+'] += $aging['12+'];
         }
     }
     
     // Log activity
     if (isset($_SESSION['user_id'])) {
         $logStmt = $pdo->prepare("
-            INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_by)
-            VALUES (:user_id, 6, :description, :activity_data, :created_by)
+            INSERT INTO activity_logs (user_id, activity_type_id, description, activity_data, created_at)
+            VALUES (:user_id, 6, :description, :activity_data, NOW())
         ");
         $logStmt->execute([
             ':user_id' => $_SESSION['user_id'] ?? null,
@@ -528,8 +538,7 @@ try {
                 'as_on_date' => $as_on_date,
                 'customer_outstanding' => $total_customer_outstanding,
                 'supplier_outstanding' => $total_supplier_outstanding
-            ]),
-            ':created_by' => $_SESSION['user_id'] ?? null
+            ])
         ]);
     }
     
@@ -562,19 +571,18 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     
     if ($report_type == 'customer' || $report_type == 'both') {
         fputcsv($output, ['CUSTOMER OUTSTANDING']);
-        fputcsv($output, ['Customer', 'Code', 'Outstanding', 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '91-180 Days', '180+ Days', 'Credit Limit', 'Utilization %']);
+        fputcsv($output, ['Customer', 'Code', 'Outstanding', '0-1 Month', '1-3 Months', '3-6 Months', '6-12 Months', '12+ Months', 'Credit Limit', 'Utilization %']);
         
         foreach ($customer_data as $customer) {
             fputcsv($output, [
                 $customer['name'],
                 $customer['code'],
                 number_format($customer['outstanding'], 2),
-                number_format($customer['aging']['current'], 2),
-                number_format($customer['aging']['1-30'], 2),
-                number_format($customer['aging']['31-60'], 2),
-                number_format($customer['aging']['61-90'], 2),
-                number_format($customer['aging']['91-180'], 2),
-                number_format($customer['aging']['180+'], 2),
+                number_format($customer['aging']['0-1'], 2),
+                number_format($customer['aging']['1-3'], 2),
+                number_format($customer['aging']['3-6'], 2),
+                number_format($customer['aging']['6-12'], 2),
+                number_format($customer['aging']['12+'], 2),
                 number_format($customer['credit_limit'], 2),
                 number_format($customer['credit_utilization'], 2) . '%'
             ]);
@@ -584,7 +592,7 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     
     if ($report_type == 'supplier' || $report_type == 'both') {
         fputcsv($output, ['SUPPLIER OUTSTANDING']);
-        fputcsv($output, ['Supplier', 'Code', 'Company', 'Outstanding', 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '91-180 Days', '180+ Days']);
+        fputcsv($output, ['Supplier', 'Code', 'Company', 'Outstanding', '0-1 Month', '1-3 Months', '3-6 Months', '6-12 Months', '12+ Months']);
         
         foreach ($supplier_data as $supplier) {
             fputcsv($output, [
@@ -592,12 +600,11 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                 $supplier['code'],
                 $supplier['company'],
                 number_format($supplier['outstanding'], 2),
-                number_format($supplier['aging']['current'], 2),
-                number_format($supplier['aging']['1-30'], 2),
-                number_format($supplier['aging']['31-60'], 2),
-                number_format($supplier['aging']['61-90'], 2),
-                number_format($supplier['aging']['91-180'], 2),
-                number_format($supplier['aging']['180+'], 2)
+                number_format($supplier['aging']['0-1'], 2),
+                number_format($supplier['aging']['1-3'], 2),
+                number_format($supplier['aging']['3-6'], 2),
+                number_format($supplier['aging']['6-12'], 2),
+                number_format($supplier['aging']['12+'], 2)
             ]);
         }
     }
@@ -617,6 +624,120 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Filter Form Alignment */
+        .filter-form-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .filter-form-container .form-group {
+            margin-bottom: 0;
+        }
+        
+        .filter-form-container label {
+            font-weight: 500;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        
+        .filter-form-container .form-control,
+        .filter-form-container .form-select {
+            font-size: 14px;
+            height: 38px;
+        }
+        
+        /* Status dropdown container */
+        .status-dropdown-container {
+            min-width: 140px;
+        }
+        
+        /* Status badge styles */
+        .badge-status {
+            padding: 5px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        
+        /* Button group alignment */
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 28px;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .filter-form-container .form-group {
+                margin-bottom: 15px;
+            }
+            
+            .filter-buttons {
+                margin-top: 0;
+            }
+        }
+        
+        /* Table responsiveness */
+        .table-responsive {
+            overflow-x: auto;
+        }
+        
+        /* Print styles */
+        @media print {
+            .vertical-menu, .topbar, .footer, .btn, .modal, 
+            .page-title-right, .card-title .btn, .action-buttons,
+            form, .apex-charts {
+                display: none !important;
+            }
+            .main-content {
+                margin-left: 0 !important;
+            }
+            .card {
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .table {
+                font-size: 9pt;
+            }
+            .badge {
+                border: 1px solid #000;
+                color: #000 !important;
+                background: transparent !important;
+            }
+        }
+        
+        /* Button styles */
+        .btn-soft-primary {
+            transition: all 0.3s;
+        }
+        
+        .btn-soft-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
+        }
+        
+        /* Aging bucket colors */
+        .bucket-current {
+            background-color: #d4edda;
+        }
+        .bucket-30 {
+            background-color: #fff3cd;
+        }
+        .bucket-60 {
+            background-color: #ffe5b4;
+        }
+        .bucket-90 {
+            background-color: #ffc107;
+        }
+        .bucket-180 {
+            background-color: #fd7e14;
+        }
+        .bucket-180plus {
+            background-color: #dc3545;
+            color: white;
+        }
+    </style>
 </head>
 
 <body data-sidebar="dark">
@@ -816,87 +937,86 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                     <?php endif; ?>
                 </div>
 
-                <!-- Filter Form -->
+                <!-- Filter Form - Properly Aligned -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
-                            <div class="card-body">
+                            <div class="card-body filter-form-container">
                                 <h4 class="card-title mb-4">Filter Report</h4>
-                                <form method="GET" action="outstanding-report.php" class="row" id="filterForm">
+                                <form method="GET" action="outstanding-report.php" id="filterForm">
                                     <input type="hidden" name="report_type" value="<?= htmlspecialchars($report_type) ?>">
                                     
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="as_on_date" class="form-label">As On Date</label>
-                                            <input type="date" class="form-control" id="as_on_date" name="as_on_date" value="<?= htmlspecialchars($as_on_date) ?>">
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="as_on_date" class="form-label">As On Date</label>
+                                                <input type="date" class="form-control" id="as_on_date" name="as_on_date" value="<?= htmlspecialchars($as_on_date) ?>">
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="customer_id" class="form-label">Customer</label>
-                                            <select class="form-control" id="customer_id" name="customer_id">
-                                                <option value="">All Customers</option>
-                                                <?php foreach ($customers as $cust): ?>
-                                                <option value="<?= $cust['id'] ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($cust['name']) ?>
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                        
+                                        <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="customer_id" class="form-label">Customer</label>
+                                                <select class="form-control" id="customer_id" name="customer_id">
+                                                    <option value="">All Customers</option>
+                                                    <?php foreach ($customers as $cust): ?>
+                                                    <option value="<?= $cust['id'] ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($cust['name']) ?>
+                                                    </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <?php endif; ?>
-                                    
-                                    <?php if ($report_type == 'supplier' || $report_type == 'both'): ?>
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="supplier_id" class="form-label">Supplier</label>
-                                            <select class="form-control" id="supplier_id" name="supplier_id">
-                                                <option value="">All Suppliers</option>
-                                                <?php foreach ($suppliers as $sup): ?>
-                                                <option value="<?= $sup['id'] ?>" <?= $supplier_id == $sup['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($sup['name']) ?>
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                        <?php endif; ?>
+                                        
+                                        <?php if ($report_type == 'supplier' || $report_type == 'both'): ?>
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="supplier_id" class="form-label">Supplier</label>
+                                                <select class="form-control" id="supplier_id" name="supplier_id">
+                                                    <option value="">All Suppliers</option>
+                                                    <?php foreach ($suppliers as $sup): ?>
+                                                    <option value="<?= $sup['id'] ?>" <?= $supplier_id == $sup['id'] ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($sup['name']) ?>
+                                                    </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <?php endif; ?>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="status" class="form-label">Status</label>
-                                            <select class="form-control" id="status" name="status">
-                                                <option value="all" <?= $status == 'all' ? 'selected' : '' ?>>All</option>
-                                                <option value="due" <?= $status == 'due' ? 'selected' : '' ?>>Due</option>
-                                                <option value="overdue" <?= $status == 'overdue' ? 'selected' : '' ?>>Overdue</option>
-                                            </select>
+                                        <?php endif; ?>
+                                        
+                                        <div class="col-md-2 status-dropdown-container">
+                                            <div class="form-group">
+                                                <label for="status" class="form-label">Status</label>
+                                                <select class="form-control" id="status" name="status" style="min-width: 120px;">
+                                                    <option value="all" <?= $status == 'all' ? 'selected' : '' ?>>All</option>
+                                                    <option value="due" <?= $status == 'due' ? 'selected' : '' ?>>Due</option>
+                                                    <option value="overdue" <?= $status == 'overdue' ? 'selected' : '' ?>>Overdue</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="min_amount" class="form-label">Min Amount (₹)</label>
-                                            <input type="number" step="1000" class="form-control" id="min_amount" name="min_amount" value="<?= $min_amount > 0 ? $min_amount : '' ?>" placeholder="0">
+                                        
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="min_amount" class="form-label">Min Amount (₹)</label>
+                                                <input type="number" step="1000" class="form-control" id="min_amount" name="min_amount" value="<?= $min_amount > 0 ? $min_amount : '' ?>" placeholder="0">
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="search" class="form-label">Search</label>
-                                            <input type="text" class="form-control" id="search" name="search" placeholder="Name, Code..." value="<?= htmlspecialchars($search) ?>">
+                                        
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="search" class="form-label">Search</label>
+                                                <input type="text" class="form-control" id="search" name="search" placeholder="Name, Code..." value="<?= htmlspecialchars($search) ?>">
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label class="form-label">&nbsp;</label>
-                                            <div>
-                                                <button type="submit" class="btn btn-primary me-2">
+                                        
+                                        <div class="col-md-2">
+                                            <div class="filter-buttons">
+                                                <button type="submit" class="btn btn-primary w-100">
                                                     <i class="mdi mdi-filter"></i> Apply
                                                 </button>
-                                                <a href="outstanding-report.php?report_type=<?= $report_type ?>" class="btn btn-secondary">
+                                                <a href="outstanding-report.php?report_type=<?= $report_type ?>" class="btn btn-secondary w-100">
                                                     <i class="mdi mdi-refresh"></i> Reset
                                                 </a>
                                             </div>
@@ -909,60 +1029,53 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                 </div>
 
                 <!-- Aging Summary Chart -->
-                <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
                 <div class="row">
+                    <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-body">
-                                <h4 class="card-title mb-4">Customer Aging Summary</h4>
+                                <h4 class="card-title mb-4">Customer Aging Summary (Months)</h4>
                                 <div id="customer-aging-chart" class="apex-charts" dir="ltr"></div>
                                 <div class="table-responsive mt-3">
                                     <table class="table table-sm table-bordered">
                                         <thead>
                                             <tr>
-                                                <th>Bucket</th>
+                                                <th>Aging Bucket</th>
                                                 <th class="text-end">Amount (₹)</th>
                                                 <th class="text-end">% of Total</th>
-                                            </tr>
-                                        </thead>
+                                            </thead>
                                         <tbody>
                                             <?php
-                                            $customer_total = $customer_aging_summary['current'] + 
-                                                              $customer_aging_summary['1-30'] + 
-                                                              $customer_aging_summary['31-60'] + 
-                                                              $customer_aging_summary['61-90'] + 
-                                                              $customer_aging_summary['91-180'] + 
-                                                              $customer_aging_summary['180+'];
+                                            $customer_total = $customer_aging_summary['0-1'] + 
+                                                              $customer_aging_summary['1-3'] + 
+                                                              $customer_aging_summary['3-6'] + 
+                                                              $customer_aging_summary['6-12'] + 
+                                                              $customer_aging_summary['12+'];
                                             ?>
-                                            <tr>
-                                                <td>Current</td>
-                                                <td class="text-end">₹<?= number_format($customer_aging_summary['current'], 2) ?></td>
-                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['current'] / $customer_total * 100), 1) : 0 ?>%</td>
+                                             <tr>
+                                                <td>0-1 Month</td>
+                                                <td class="text-end">₹<?= number_format($customer_aging_summary['0-1'], 2) ?></td>
+                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['0-1'] / $customer_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>1-30 Days</td>
-                                                <td class="text-end">₹<?= number_format($customer_aging_summary['1-30'], 2) ?></td>
-                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['1-30'] / $customer_total * 100), 1) : 0 ?>%</td>
+                                                <td>1-3 Months</td>
+                                                <td class="text-end">₹<?= number_format($customer_aging_summary['1-3'], 2) ?></td>
+                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['1-3'] / $customer_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>31-60 Days</td>
-                                                <td class="text-end">₹<?= number_format($customer_aging_summary['31-60'], 2) ?></td>
-                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['31-60'] / $customer_total * 100), 1) : 0 ?>%</td>
+                                                <td>3-6 Months</td>
+                                                <td class="text-end">₹<?= number_format($customer_aging_summary['3-6'], 2) ?></td>
+                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['3-6'] / $customer_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>61-90 Days</td>
-                                                <td class="text-end">₹<?= number_format($customer_aging_summary['61-90'], 2) ?></td>
-                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['61-90'] / $customer_total * 100), 1) : 0 ?>%</td>
+                                                <td>6-12 Months</td>
+                                                <td class="text-end">₹<?= number_format($customer_aging_summary['6-12'], 2) ?></td>
+                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['6-12'] / $customer_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>91-180 Days</td>
-                                                <td class="text-end">₹<?= number_format($customer_aging_summary['91-180'], 2) ?></td>
-                                                <td class="text-end"><?= $customer_total > 0 ? number_format(($customer_aging_summary['91-180'] / $customer_total * 100), 1) : 0 ?>%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>180+ Days</td>
-                                                <td class="text-end text-danger">₹<?= number_format($customer_aging_summary['180+'], 2) ?></td>
-                                                <td class="text-end text-danger"><?= $customer_total > 0 ? number_format(($customer_aging_summary['180+'] / $customer_total * 100), 1) : 0 ?>%</td>
+                                                <td class="text-danger">12+ Months</td>
+                                                <td class="text-end text-danger">₹<?= number_format($customer_aging_summary['12+'], 2) ?></td>
+                                                <td class="text-end text-danger"><?= $customer_total > 0 ? number_format(($customer_aging_summary['12+'] / $customer_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -970,61 +1083,55 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                             </div>
                         </div>
                     </div>
-                <?php endif; ?>
-                
-                <?php if ($report_type == 'supplier' || $report_type == 'both'): ?>
+                    <?php endif; ?>
+                    
+                    <?php if ($report_type == 'supplier' || $report_type == 'both'): ?>
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-body">
-                                <h4 class="card-title mb-4">Supplier Aging Summary</h4>
+                                <h4 class="card-title mb-4">Supplier Aging Summary (Months)</h4>
                                 <div id="supplier-aging-chart" class="apex-charts" dir="ltr"></div>
                                 <div class="table-responsive mt-3">
                                     <table class="table table-sm table-bordered">
                                         <thead>
-                                            <tr>
-                                                <th>Bucket</th>
+                                             <tr>
+                                                <th>Aging Bucket</th>
                                                 <th class="text-end">Amount (₹)</th>
                                                 <th class="text-end">% of Total</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php
-                                            $supplier_total = $supplier_aging_summary['current'] + 
-                                                              $supplier_aging_summary['1-30'] + 
-                                                              $supplier_aging_summary['31-60'] + 
-                                                              $supplier_aging_summary['61-90'] + 
-                                                              $supplier_aging_summary['91-180'] + 
-                                                              $supplier_aging_summary['180+'];
+                                            $supplier_total = $supplier_aging_summary['0-1'] + 
+                                                              $supplier_aging_summary['1-3'] + 
+                                                              $supplier_aging_summary['3-6'] + 
+                                                              $supplier_aging_summary['6-12'] + 
+                                                              $supplier_aging_summary['12+'];
                                             ?>
                                             <tr>
-                                                <td>Current</td>
-                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['current'], 2) ?></td>
-                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['current'] / $supplier_total * 100), 1) : 0 ?>%</td>
+                                                <td>0-1 Month</td>
+                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['0-1'], 2) ?></td>
+                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['0-1'] / $supplier_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>1-30 Days</td>
-                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['1-30'], 2) ?></td>
-                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['1-30'] / $supplier_total * 100), 1) : 0 ?>%</td>
+                                                <td>1-3 Months</td>
+                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['1-3'], 2) ?></td>
+                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['1-3'] / $supplier_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>31-60 Days</td>
-                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['31-60'], 2) ?></td>
-                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['31-60'] / $supplier_total * 100), 1) : 0 ?>%</td>
+                                                <td>3-6 Months</td>
+                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['3-6'], 2) ?></td>
+                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['3-6'] / $supplier_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>61-90 Days</td>
-                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['61-90'], 2) ?></td>
-                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['61-90'] / $supplier_total * 100), 1) : 0 ?>%</td>
+                                                <td>6-12 Months</td>
+                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['6-12'], 2) ?></td>
+                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['6-12'] / $supplier_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                             <tr>
-                                                <td>91-180 Days</td>
-                                                <td class="text-end">₹<?= number_format($supplier_aging_summary['91-180'], 2) ?></td>
-                                                <td class="text-end"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['91-180'] / $supplier_total * 100), 1) : 0 ?>%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>180+ Days</td>
-                                                <td class="text-end text-danger">₹<?= number_format($supplier_aging_summary['180+'], 2) ?></td>
-                                                <td class="text-end text-danger"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['180+'] / $supplier_total * 100), 1) : 0 ?>%</td>
+                                                <td class="text-danger">12+ Months</td>
+                                                <td class="text-end text-danger">₹<?= number_format($supplier_aging_summary['12+'], 2) ?></td>
+                                                <td class="text-end text-danger"><?= $supplier_total > 0 ? number_format(($supplier_aging_summary['12+'] / $supplier_total * 100), 1) : 0 ?>%</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -1032,8 +1139,8 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                             </div>
                         </div>
                     </div>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
 
                 <!-- Customer Outstanding Table -->
                 <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
@@ -1046,17 +1153,16 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                 <div class="table-responsive">
                                     <table class="table table-centered table-nowrap mb-0">
                                         <thead class="thead-light">
-                                            <tr>
+                                             <tr>
                                                 <th>Customer</th>
                                                 <th>Code</th>
                                                 <th>Contact</th>
                                                 <th class="text-end">Outstanding</th>
-                                                <th class="text-end">Current</th>
-                                                <th class="text-end">1-30</th>
-                                                <th class="text-end">31-60</th>
-                                                <th class="text-end">61-90</th>
-                                                <th class="text-end">91-180</th>
-                                                <th class="text-end">180+</th>
+                                                <th class="text-end">0-1 Month</th>
+                                                <th class="text-end">1-3 Months</th>
+                                                <th class="text-end">3-6 Months</th>
+                                                <th class="text-end">6-12 Months</th>
+                                                <th class="text-end">12+ Months</th>
                                                 <th class="text-end">Credit Limit</th>
                                                 <th>Status</th>
                                                 <th>Action</th>
@@ -1083,12 +1189,11 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                                     <td class="text-end">
                                                         <strong>₹<?= number_format($customer['outstanding'], 2) ?></strong>
                                                     </td>
-                                                    <td class="text-end">₹<?= number_format($customer['aging']['current'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($customer['aging']['1-30'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($customer['aging']['31-60'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($customer['aging']['61-90'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($customer['aging']['91-180'], 2) ?></td>
-                                                    <td class="text-end text-danger">₹<?= number_format($customer['aging']['180+'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($customer['aging']['0-1'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($customer['aging']['1-3'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($customer['aging']['3-6'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($customer['aging']['6-12'], 2) ?></td>
+                                                    <td class="text-end text-danger">₹<?= number_format($customer['aging']['12+'], 2) ?></td>
                                                     <td class="text-end">
                                                         ₹<?= number_format($customer['credit_limit'], 2) ?>
                                                         <?php if ($customer['credit_limit'] > 0): ?>
@@ -1100,19 +1205,18 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                                     </td>
                                                     <td>
                                                         <?php
-                                                        $overdue_total = $customer['aging']['1-30'] + 
-                                                                        $customer['aging']['31-60'] + 
-                                                                        $customer['aging']['61-90'] + 
-                                                                        $customer['aging']['91-180'] + 
-                                                                        $customer['aging']['180+'];
+                                                        $overdue_total = $customer['aging']['1-3'] + 
+                                                                        $customer['aging']['3-6'] + 
+                                                                        $customer['aging']['6-12'] + 
+                                                                        $customer['aging']['12+'];
                                                         
                                                         if ($overdue_total > 0):
                                                         ?>
-                                                            <span class="badge bg-soft-danger text-danger">Overdue</span>
+                                                            <span class="badge bg-soft-danger text-danger badge-status">Overdue</span>
                                                         <?php elseif ($customer['outstanding'] > 0): ?>
-                                                            <span class="badge bg-soft-warning text-warning">Due</span>
+                                                            <span class="badge bg-soft-warning text-warning badge-status">Due</span>
                                                         <?php else: ?>
-                                                            <span class="badge bg-soft-success text-success">Clear</span>
+                                                            <span class="badge bg-soft-success text-success badge-status">Clear</span>
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
@@ -1143,18 +1247,17 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                 <div class="table-responsive">
                                     <table class="table table-centered table-nowrap mb-0">
                                         <thead class="thead-light">
-                                            <tr>
+                                             <tr>
                                                 <th>Supplier</th>
                                                 <th>Code</th>
                                                 <th>Company</th>
                                                 <th>Contact</th>
                                                 <th class="text-end">Outstanding</th>
-                                                <th class="text-end">Current</th>
-                                                <th class="text-end">1-30</th>
-                                                <th class="text-end">31-60</th>
-                                                <th class="text-end">61-90</th>
-                                                <th class="text-end">91-180</th>
-                                                <th class="text-end">180+</th>
+                                                <th class="text-end">0-1 Month</th>
+                                                <th class="text-end">1-3 Months</th>
+                                                <th class="text-end">3-6 Months</th>
+                                                <th class="text-end">6-12 Months</th>
+                                                <th class="text-end">12+ Months</th>
                                                 <th>Status</th>
                                                 <th>Action</th>
                                             </tr>
@@ -1181,27 +1284,25 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
                                                     <td class="text-end">
                                                         <strong>₹<?= number_format($supplier['outstanding'], 2) ?></strong>
                                                     </td>
-                                                    <td class="text-end">₹<?= number_format($supplier['aging']['current'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($supplier['aging']['1-30'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($supplier['aging']['31-60'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($supplier['aging']['61-90'], 2) ?></td>
-                                                    <td class="text-end">₹<?= number_format($supplier['aging']['91-180'], 2) ?></td>
-                                                    <td class="text-end text-danger">₹<?= number_format($supplier['aging']['180+'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($supplier['aging']['0-1'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($supplier['aging']['1-3'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($supplier['aging']['3-6'], 2) ?></td>
+                                                    <td class="text-end">₹<?= number_format($supplier['aging']['6-12'], 2) ?></td>
+                                                    <td class="text-end text-danger">₹<?= number_format($supplier['aging']['12+'], 2) ?></td>
                                                     <td>
                                                         <?php
-                                                        $overdue_total = $supplier['aging']['1-30'] + 
-                                                                        $supplier['aging']['31-60'] + 
-                                                                        $supplier['aging']['61-90'] + 
-                                                                        $supplier['aging']['91-180'] + 
-                                                                        $supplier['aging']['180+'];
+                                                        $overdue_total = $supplier['aging']['1-3'] + 
+                                                                        $supplier['aging']['3-6'] + 
+                                                                        $supplier['aging']['6-12'] + 
+                                                                        $supplier['aging']['12+'];
                                                         
                                                         if ($overdue_total > 0):
                                                         ?>
-                                                            <span class="badge bg-soft-danger text-danger">Overdue</span>
+                                                            <span class="badge bg-soft-danger text-danger badge-status">Overdue</span>
                                                         <?php elseif ($supplier['outstanding'] > 0): ?>
-                                                            <span class="badge bg-soft-warning text-warning">Due</span>
+                                                            <span class="badge bg-soft-warning text-warning badge-status">Due</span>
                                                         <?php else: ?>
-                                                            <span class="badge bg-soft-success text-success">Clear</span>
+                                                            <span class="badge bg-soft-success text-success badge-status">Clear</span>
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
@@ -1253,12 +1354,11 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     // Customer Aging Chart
     <?php if ($report_type == 'customer' || $report_type == 'both'): ?>
     var customerAgingData = {
-        current: <?= $customer_aging_summary['current'] ?>,
-        days1_30: <?= $customer_aging_summary['1-30'] ?>,
-        days31_60: <?= $customer_aging_summary['31-60'] ?>,
-        days61_90: <?= $customer_aging_summary['61-90'] ?>,
-        days91_180: <?= $customer_aging_summary['91-180'] ?>,
-        days180: <?= $customer_aging_summary['180+'] ?>
+        month1: <?= $customer_aging_summary['0-1'] ?>,
+        month3: <?= $customer_aging_summary['1-3'] ?>,
+        month6: <?= $customer_aging_summary['3-6'] ?>,
+        month12: <?= $customer_aging_summary['6-12'] ?>,
+        month12plus: <?= $customer_aging_summary['12+'] ?>
     };
 
     var customerOptions = {
@@ -1287,16 +1387,15 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
         series: [{
             name: 'Outstanding Amount',
             data: [
-                customerAgingData.current,
-                customerAgingData.days1_30,
-                customerAgingData.days31_60,
-                customerAgingData.days61_90,
-                customerAgingData.days91_180,
-                customerAgingData.days180
+                customerAgingData.month1,
+                customerAgingData.month3,
+                customerAgingData.month6,
+                customerAgingData.month12,
+                customerAgingData.month12plus
             ]
         }],
         xaxis: {
-            categories: ['Current', '1-30 Days', '31-60 Days', '61-90 Days', '91-180 Days', '180+ Days'],
+            categories: ['0-1 Month', '1-3 Months', '3-6 Months', '6-12 Months', '12+ Months'],
         },
         yaxis: {
             title: {
@@ -1310,7 +1409,7 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
         },
         fill: {
             opacity: 1,
-            colors: ['#34c38f', '#50a5f1', '#f1b44c', '#f46a6a', '#f46a6a', '#f46a6a']
+            colors: ['#34c38f', '#50a5f1', '#f1b44c', '#f46a6a', '#dc3545']
         },
         tooltip: {
             y: {
@@ -1328,12 +1427,11 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
     // Supplier Aging Chart
     <?php if ($report_type == 'supplier' || $report_type == 'both'): ?>
     var supplierAgingData = {
-        current: <?= $supplier_aging_summary['current'] ?>,
-        days1_30: <?= $supplier_aging_summary['1-30'] ?>,
-        days31_60: <?= $supplier_aging_summary['31-60'] ?>,
-        days61_90: <?= $supplier_aging_summary['61-90'] ?>,
-        days91_180: <?= $supplier_aging_summary['91-180'] ?>,
-        days180: <?= $supplier_aging_summary['180+'] ?>
+        month1: <?= $supplier_aging_summary['0-1'] ?>,
+        month3: <?= $supplier_aging_summary['1-3'] ?>,
+        month6: <?= $supplier_aging_summary['3-6'] ?>,
+        month12: <?= $supplier_aging_summary['6-12'] ?>,
+        month12plus: <?= $supplier_aging_summary['12+'] ?>
     };
 
     var supplierOptions = {
@@ -1362,16 +1460,15 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
         series: [{
             name: 'Outstanding Amount',
             data: [
-                supplierAgingData.current,
-                supplierAgingData.days1_30,
-                supplierAgingData.days31_60,
-                supplierAgingData.days61_90,
-                supplierAgingData.days91_180,
-                supplierAgingData.days180
+                supplierAgingData.month1,
+                supplierAgingData.month3,
+                supplierAgingData.month6,
+                supplierAgingData.month12,
+                supplierAgingData.month12plus
             ]
         }],
         xaxis: {
-            categories: ['Current', '1-30 Days', '31-60 Days', '61-90 Days', '91-180 Days', '180+ Days'],
+            categories: ['0-1 Month', '1-3 Months', '3-6 Months', '6-12 Months', '12+ Months'],
         },
         yaxis: {
             title: {
@@ -1385,7 +1482,7 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
         },
         fill: {
             opacity: 1,
-            colors: ['#34c38f', '#50a5f1', '#f1b44c', '#f46a6a', '#f46a6a', '#f46a6a']
+            colors: ['#34c38f', '#50a5f1', '#f1b44c', '#f46a6a', '#dc3545']
         },
         tooltip: {
             y: {
@@ -1411,76 +1508,6 @@ function exportToCSV($customer_data, $supplier_data, $report_type, $as_on_date) 
         });
     }, 100);
 </script>
-
-<style>
-@media print {
-    .vertical-menu, .topbar, .footer, .btn, .modal, 
-    .page-title-right, .card-title .btn, .action-buttons,
-    form, .apex-charts {
-        display: none !important;
-    }
-    .main-content {
-        margin-left: 0 !important;
-    }
-    .card {
-        border: none !important;
-        box-shadow: none !important;
-    }
-    .table {
-        font-size: 9pt;
-    }
-    .badge {
-        border: 1px solid #000;
-        color: #000 !important;
-        background: transparent !important;
-    }
-}
-
-.table td {
-    vertical-align: middle;
-}
-
-/* Aging bucket colors */
-.bucket-current {
-    background-color: #d4edda;
-}
-.bucket-30 {
-    background-color: #fff3cd;
-}
-.bucket-60 {
-    background-color: #ffe5b4;
-}
-.bucket-90 {
-    background-color: #ffc107;
-}
-.bucket-180 {
-    background-color: #fd7e14;
-}
-.bucket-180plus {
-    background-color: #dc3545;
-    color: white;
-}
-
-/* Button styles */
-.btn-soft-primary {
-    transition: all 0.3s;
-}
-
-.btn-soft-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .table {
-        font-size: 8pt;
-    }
-    .table td, .table th {
-        padding: 0.5rem;
-    }
-}
-</style>
 
 </body>
 </html>

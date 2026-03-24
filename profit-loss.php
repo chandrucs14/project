@@ -18,550 +18,6 @@ $date_to = isset($_GET['date_to']) ? $_GET['date_to'] : date('Y-m-d');
 $compare_with = isset($_GET['compare_with']) ? $_GET['compare_with'] : 'previous'; // previous, last_year, budget
 $show_details = isset($_GET['show_details']) ? $_GET['show_details'] : 'summary'; // summary, detailed, ratio
 
-// Handle AJAX request for report data
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
-    header('Content-Type: application/json');
-    
-    try {
-        $report_type = $_GET['report_type'] ?? 'monthly';
-        $period = $_GET['period'] ?? date('Y-m');
-        $date_from = $_GET['date_from'] ?? date('Y-m-01');
-        $date_to = $_GET['date_to'] ?? date('Y-m-d');
-        $compare_with = $_GET['compare_with'] ?? 'previous';
-        $show_details = $_GET['show_details'] ?? 'summary';
-        
-        // Get current period data
-        $current_data = getProfitLossData($pdo, $date_from, $date_to);
-        
-        // Get comparison data if needed
-        $comparison_data = null;
-        $comparison_period = '';
-        
-        if ($compare_with != 'none') {
-            $comparison_dates = getComparisonDates($date_from, $date_to, $compare_with);
-            if ($comparison_dates) {
-                $comparison_data = getProfitLossData($pdo, $comparison_dates['from'], $comparison_dates['to']);
-                $comparison_period = formatPeriod($comparison_dates['from'], $comparison_dates['to']);
-            }
-        }
-        
-        // Calculate ratios and percentages
-        $ratios = calculateFinancialRatios($current_data, $comparison_data);
-        
-        // Generate HTML
-        ob_start();
-        ?>
-        
-        <!-- Summary Cards -->
-        <div class="row">
-            <div class="col-xl-3 col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-shrink-0 me-3">
-                                <div class="avatar-sm">
-                                    <span class="avatar-title bg-soft-success text-success rounded-circle">
-                                        <i class="mdi mdi-cash-multiple font-size-24"></i>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <p class="text-muted mb-2">Total Revenue</p>
-                                <h4>₹<?= number_format($current_data['total_revenue'], 2) ?></h4>
-                                <?php if ($comparison_data): ?>
-                                <small class="<?= getChangeClass($current_data['total_revenue'], $comparison_data['total_revenue']) ?>">
-                                    <i class="mdi mdi-<?= getChangeIcon($current_data['total_revenue'], $comparison_data['total_revenue']) ?>"></i>
-                                    <?= number_format(abs(getChangePercent($current_data['total_revenue'], $comparison_data['total_revenue'])), 1) ?>%
-                                </small>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-shrink-0 me-3">
-                                <div class="avatar-sm">
-                                    <span class="avatar-title bg-soft-danger text-danger rounded-circle">
-                                        <i class="mdi mdi-cart-arrow-down font-size-24"></i>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <p class="text-muted mb-2">Total Expenses</p>
-                                <h4>₹<?= number_format($current_data['total_expenses'], 2) ?></h4>
-                                <?php if ($comparison_data): ?>
-                                <small class="<?= getChangeClass($current_data['total_expenses'], $comparison_data['total_expenses'], true) ?>">
-                                    <i class="mdi mdi-<?= getChangeIcon($current_data['total_expenses'], $comparison_data['total_expenses'], true) ?>"></i>
-                                    <?= number_format(abs(getChangePercent($current_data['total_expenses'], $comparison_data['total_expenses'])), 1) ?>%
-                                </small>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-shrink-0 me-3">
-                                <div class="avatar-sm">
-                                    <span class="avatar-title bg-soft-info text-info rounded-circle">
-                                        <i class="mdi mdi-chart-line font-size-24"></i>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <p class="text-muted mb-2">Gross Profit</p>
-                                <h4>₹<?= number_format($current_data['gross_profit'], 2) ?></h4>
-                                <small class="<?= $current_data['gross_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                    Margin: <?= number_format($current_data['gross_margin'], 1) ?>%
-                                </small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-shrink-0 me-3">
-                                <div class="avatar-sm">
-                                    <span class="avatar-title bg-soft-warning text-warning rounded-circle">
-                                        <i class="mdi mdi-crown font-size-24"></i>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <p class="text-muted mb-2">Net Profit</p>
-                                <h4 class="<?= $current_data['net_profit'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                    ₹<?= number_format($current_data['net_profit'], 2) ?>
-                                </h4>
-                                <small class="<?= $current_data['net_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                    Margin: <?= number_format($current_data['net_margin'], 1) ?>%
-                                </small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Profit & Loss Statement -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h4 class="card-title mb-4">Profit & Loss Statement</h4>
-                        
-                        <div class="table-responsive">
-                            <table class="table table-centered table-nowrap mb-0">
-                                <thead class="thead-light">
-                                    <tr>
-                                        <th style="width: 40%;">Particulars</th>
-                                        <th class="text-end">Amount (₹)</th>
-                                        <th class="text-end">% of Revenue</th>
-                                        <?php if ($comparison_data): ?>
-                                        <th class="text-end">Previous (₹)</th>
-                                        <th class="text-end">Change</th>
-                                        <?php endif; ?>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <!-- Revenue Section -->
-                                    <tr class="table-info">
-                                        <td colspan="5"><strong>REVENUE</strong></td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Sales Revenue</td>
-                                        <td class="text-end">₹<?= number_format($current_data['sales_revenue'], 2) ?></td>
-                                        <td class="text-end"><?= number_format($current_data['sales_revenue_percent'], 1) ?>%</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">₹<?= number_format($comparison_data['sales_revenue'], 2) ?></td>
-                                        <td class="text-end <?= getChangeClass($current_data['sales_revenue'], $comparison_data['sales_revenue']) ?>">
-                                            <?= getChangeIcon($current_data['sales_revenue'], $comparison_data['sales_revenue']) ?> 
-                                            <?= number_format(getChangePercent($current_data['sales_revenue'], $comparison_data['sales_revenue']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Other Income</td>
-                                        <td class="text-end">₹<?= number_format($current_data['other_income'], 2) ?></td>
-                                        <td class="text-end"><?= number_format($current_data['other_income_percent'], 1) ?>%</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">₹<?= number_format($comparison_data['other_income'], 2) ?></td>
-                                        <td class="text-end <?= getChangeClass($current_data['other_income'], $comparison_data['other_income']) ?>">
-                                            <?= getChangeIcon($current_data['other_income'], $comparison_data['other_income']) ?> 
-                                            <?= number_format(getChangePercent($current_data['other_income'], $comparison_data['other_income']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr class="border-top">
-                                        <td><strong>Total Revenue</strong></td>
-                                        <td class="text-end"><strong>₹<?= number_format($current_data['total_revenue'], 2) ?></strong></td>
-                                        <td class="text-end"><strong>100%</strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['total_revenue'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['total_revenue'], $comparison_data['total_revenue']) ?>">
-                                            <?= getChangeIcon($current_data['total_revenue'], $comparison_data['total_revenue']) ?> 
-                                            <?= number_format(getChangePercent($current_data['total_revenue'], $comparison_data['total_revenue']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Cost of Goods Sold -->
-                                    <tr class="table-info">
-                                        <td colspan="5"><strong>COST OF GOODS SOLD</strong></td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Opening Stock</td>
-                                        <td class="text-end">₹<?= number_format($current_data['opening_stock'], 2) ?></td>
-                                        <td class="text-end"><?= number_format($current_data['opening_stock_percent'], 1) ?>%</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">₹<?= number_format($comparison_data['opening_stock'], 2) ?></td>
-                                        <td class="text-end <?= getChangeClass($current_data['opening_stock'], $comparison_data['opening_stock']) ?>">
-                                            <?= getChangeIcon($current_data['opening_stock'], $comparison_data['opening_stock']) ?> 
-                                            <?= number_format(getChangePercent($current_data['opening_stock'], $comparison_data['opening_stock']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Purchases</td>
-                                        <td class="text-end">₹<?= number_format($current_data['purchases'], 2) ?></td>
-                                        <td class="text-end"><?= number_format($current_data['purchases_percent'], 1) ?>%</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">₹<?= number_format($comparison_data['purchases'], 2) ?></td>
-                                        <td class="text-end <?= getChangeClass($current_data['purchases'], $comparison_data['purchases'], true) ?>">
-                                            <?= getChangeIcon($current_data['purchases'], $comparison_data['purchases'], true) ?> 
-                                            <?= number_format(getChangePercent($current_data['purchases'], $comparison_data['purchases']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Less: Closing Stock</td>
-                                        <td class="text-end">(₹<?= number_format($current_data['closing_stock'], 2) ?>)</td>
-                                        <td class="text-end">(<?= number_format($current_data['closing_stock_percent'], 1) ?>%)</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">(₹<?= number_format($comparison_data['closing_stock'], 2) ?>)</td>
-                                        <td class="text-end <?= getChangeClass($current_data['closing_stock'], $comparison_data['closing_stock']) ?>">
-                                            <?= getChangeIcon($current_data['closing_stock'], $comparison_data['closing_stock']) ?> 
-                                            <?= number_format(getChangePercent($current_data['closing_stock'], $comparison_data['closing_stock']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr class="border-top">
-                                        <td><strong>Cost of Goods Sold</strong></td>
-                                        <td class="text-end"><strong>₹<?= number_format($current_data['cogs'], 2) ?></strong></td>
-                                        <td class="text-end"><strong><?= number_format($current_data['cogs_percent'], 1) ?>%</strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['cogs'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['cogs'], $comparison_data['cogs'], true) ?>">
-                                            <?= getChangeIcon($current_data['cogs'], $comparison_data['cogs'], true) ?> 
-                                            <?= number_format(getChangePercent($current_data['cogs'], $comparison_data['cogs']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Gross Profit -->
-                                    <tr class="table-success">
-                                        <td><strong>GROSS PROFIT</strong></td>
-                                        <td class="text-end"><strong>₹<?= number_format($current_data['gross_profit'], 2) ?></strong></td>
-                                        <td class="text-end"><strong><?= number_format($current_data['gross_margin'], 1) ?>%</strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['gross_profit'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['gross_profit'], $comparison_data['gross_profit']) ?>">
-                                            <?= getChangeIcon($current_data['gross_profit'], $comparison_data['gross_profit']) ?> 
-                                            <?= number_format(getChangePercent($current_data['gross_profit'], $comparison_data['gross_profit']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Operating Expenses -->
-                                    <tr class="table-info">
-                                        <td colspan="5"><strong>OPERATING EXPENSES</strong></td>
-                                    </tr>
-                                    
-                                    <?php if ($show_details == 'detailed'): ?>
-                                        <?php foreach ($current_data['expense_categories'] as $category => $amount): ?>
-                                        <tr>
-                                            <td style="padding-left: 30px;"><?= htmlspecialchars($category) ?></td>
-                                            <td class="text-end">₹<?= number_format($amount, 2) ?></td>
-                                            <td class="text-end"><?= number_format(($amount / max($current_data['total_revenue'], 1)) * 100, 1) ?>%</td>
-                                            <?php if ($comparison_data && isset($comparison_data['expense_categories'][$category])): ?>
-                                            <td class="text-end">₹<?= number_format($comparison_data['expense_categories'][$category], 2) ?></td>
-                                            <td class="text-end <?= getChangeClass($amount, $comparison_data['expense_categories'][$category], true) ?>">
-                                                <?= getChangeIcon($amount, $comparison_data['expense_categories'][$category], true) ?> 
-                                                <?= number_format(getChangePercent($amount, $comparison_data['expense_categories'][$category]), 1) ?>%
-                                            </td>
-                                            <?php elseif ($comparison_data): ?>
-                                            <td class="text-end">-</td>
-                                            <td class="text-end">-</td>
-                                            <?php endif; ?>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td style="padding-left: 30px;">Administrative Expenses</td>
-                                            <td class="text-end">₹<?= number_format($current_data['admin_expenses'], 2) ?></td>
-                                            <td class="text-end"><?= number_format($current_data['admin_expenses_percent'], 1) ?>%</td>
-                                            <?php if ($comparison_data): ?>
-                                            <td class="text-end">₹<?= number_format($comparison_data['admin_expenses'], 2) ?></td>
-                                            <td class="text-end <?= getChangeClass($current_data['admin_expenses'], $comparison_data['admin_expenses'], true) ?>">
-                                                <?= getChangeIcon($current_data['admin_expenses'], $comparison_data['admin_expenses'], true) ?> 
-                                                <?= number_format(getChangePercent($current_data['admin_expenses'], $comparison_data['admin_expenses']), 1) ?>%
-                                            </td>
-                                            <?php endif; ?>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding-left: 30px;">Selling & Marketing</td>
-                                            <td class="text-end">₹<?= number_format($current_data['selling_expenses'], 2) ?></td>
-                                            <td class="text-end"><?= number_format($current_data['selling_expenses_percent'], 1) ?>%</td>
-                                            <?php if ($comparison_data): ?>
-                                            <td class="text-end">₹<?= number_format($comparison_data['selling_expenses'], 2) ?></td>
-                                            <td class="text-end <?= getChangeClass($current_data['selling_expenses'], $comparison_data['selling_expenses'], true) ?>">
-                                                <?= getChangeIcon($current_data['selling_expenses'], $comparison_data['selling_expenses'], true) ?> 
-                                                <?= number_format(getChangePercent($current_data['selling_expenses'], $comparison_data['selling_expenses']), 1) ?>%
-                                            </td>
-                                            <?php endif; ?>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding-left: 30px;">Financial Expenses</td>
-                                            <td class="text-end">₹<?= number_format($current_data['financial_expenses'], 2) ?></td>
-                                            <td class="text-end"><?= number_format($current_data['financial_expenses_percent'], 1) ?>%</td>
-                                            <?php if ($comparison_data): ?>
-                                            <td class="text-end">₹<?= number_format($comparison_data['financial_expenses'], 2) ?></td>
-                                            <td class="text-end <?= getChangeClass($current_data['financial_expenses'], $comparison_data['financial_expenses'], true) ?>">
-                                                <?= getChangeIcon($current_data['financial_expenses'], $comparison_data['financial_expenses'], true) ?> 
-                                                <?= number_format(getChangePercent($current_data['financial_expenses'], $comparison_data['financial_expenses']), 1) ?>%
-                                            </td>
-                                            <?php endif; ?>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding-left: 30px;">Other Expenses</td>
-                                            <td class="text-end">₹<?= number_format($current_data['other_expenses'], 2) ?></td>
-                                            <td class="text-end"><?= number_format($current_data['other_expenses_percent'], 1) ?>%</td>
-                                            <?php if ($comparison_data): ?>
-                                            <td class="text-end">₹<?= number_format($comparison_data['other_expenses'], 2) ?></td>
-                                            <td class="text-end <?= getChangeClass($current_data['other_expenses'], $comparison_data['other_expenses'], true) ?>">
-                                                <?= getChangeIcon($current_data['other_expenses'], $comparison_data['other_expenses'], true) ?> 
-                                                <?= number_format(getChangePercent($current_data['other_expenses'], $comparison_data['other_expenses']), 1) ?>%
-                                            </td>
-                                            <?php endif; ?>
-                                        </tr>
-                                    <?php endif; ?>
-                                    
-                                    <tr class="border-top">
-                                        <td><strong>Total Operating Expenses</strong></td>
-                                        <td class="text-end"><strong>₹<?= number_format($current_data['total_operating_expenses'], 2) ?></strong></td>
-                                        <td class="text-end"><strong><?= number_format($current_data['operating_expenses_percent'], 1) ?>%</strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['total_operating_expenses'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['total_operating_expenses'], $comparison_data['total_operating_expenses'], true) ?>">
-                                            <?= getChangeIcon($current_data['total_operating_expenses'], $comparison_data['total_operating_expenses'], true) ?> 
-                                            <?= number_format(getChangePercent($current_data['total_operating_expenses'], $comparison_data['total_operating_expenses']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Operating Profit -->
-                                    <tr class="table-success">
-                                        <td><strong>OPERATING PROFIT</strong></td>
-                                        <td class="text-end"><strong>₹<?= number_format($current_data['operating_profit'], 2) ?></strong></td>
-                                        <td class="text-end"><strong><?= number_format($current_data['operating_margin'], 1) ?>%</strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['operating_profit'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['operating_profit'], $comparison_data['operating_profit']) ?>">
-                                            <?= getChangeIcon($current_data['operating_profit'], $comparison_data['operating_profit']) ?> 
-                                            <?= number_format(getChangePercent($current_data['operating_profit'], $comparison_data['operating_profit']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Other Income/Expenses -->
-                                    <tr>
-                                        <td style="padding-left: 30px;">Add: Other Income</td>
-                                        <td class="text-end">₹<?= number_format($current_data['other_income'], 2) ?></td>
-                                        <td class="text-end"><?= number_format($current_data['other_income_percent'], 1) ?>%</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">₹<?= number_format($comparison_data['other_income'], 2) ?></td>
-                                        <td class="text-end <?= getChangeClass($current_data['other_income'], $comparison_data['other_income']) ?>">
-                                            <?= getChangeIcon($current_data['other_income'], $comparison_data['other_income']) ?> 
-                                            <?= number_format(getChangePercent($current_data['other_income'], $comparison_data['other_income']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding-left: 30px;">Less: Interest & Taxes</td>
-                                        <td class="text-end">(₹<?= number_format($current_data['interest_taxes'], 2) ?>)</td>
-                                        <td class="text-end">(<?= number_format($current_data['interest_taxes_percent'], 1) ?>%)</td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end">(₹<?= number_format($comparison_data['interest_taxes'], 2) ?>)</td>
-                                        <td class="text-end <?= getChangeClass($current_data['interest_taxes'], $comparison_data['interest_taxes'], true) ?>">
-                                            <?= getChangeIcon($current_data['interest_taxes'], $comparison_data['interest_taxes'], true) ?> 
-                                            <?= number_format(getChangePercent($current_data['interest_taxes'], $comparison_data['interest_taxes']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-
-                                    <!-- Net Profit -->
-                                    <tr class="table-primary">
-                                        <td><strong>NET PROFIT</strong></td>
-                                        <td class="text-end"><strong class="<?= $current_data['net_profit'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                            ₹<?= number_format($current_data['net_profit'], 2) ?>
-                                        </strong></td>
-                                        <td class="text-end"><strong class="<?= $current_data['net_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                            <?= number_format($current_data['net_margin'], 1) ?>%
-                                        </strong></td>
-                                        <?php if ($comparison_data): ?>
-                                        <td class="text-end"><strong>₹<?= number_format($comparison_data['net_profit'], 2) ?></strong></td>
-                                        <td class="text-end <?= getChangeClass($current_data['net_profit'], $comparison_data['net_profit']) ?>">
-                                            <?= getChangeIcon($current_data['net_profit'], $comparison_data['net_profit']) ?> 
-                                            <?= number_format(getChangePercent($current_data['net_profit'], $comparison_data['net_profit']), 1) ?>%
-                                        </td>
-                                        <?php endif; ?>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Financial Ratios -->
-        <?php if ($show_details == 'ratio'): ?>
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h4 class="card-title mb-4">Financial Ratios</h4>
-                        
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h5 class="card-title">Profitability Ratios</h5>
-                                        <table class="table table-sm table-borderless">
-                                            <tr>
-                                                <td>Gross Profit Margin</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['gross_margin'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Operating Profit Margin</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['operating_margin'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Net Profit Margin</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['net_margin'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Return on Sales</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['return_on_sales'], 1) ?>%</strong></td>
-                                            </tr>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h5 class="card-title">Expense Ratios</h5>
-                                        <table class="table table-sm table-borderless">
-                                            <tr>
-                                                <td>Operating Expense Ratio</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['operating_expense_ratio'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Admin Expense Ratio</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['admin_expense_ratio'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Selling Expense Ratio</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['selling_expense_ratio'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Financial Expense Ratio</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['financial_expense_ratio'], 1) ?>%</strong></td>
-                                            </tr>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row mt-3">
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h5 class="card-title">Efficiency Ratios</h5>
-                                        <table class="table table-sm table-borderless">
-                                            <tr>
-                                                <td>Cost of Goods Sold / Revenue</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['cogs_to_revenue'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Operating Expenses / Revenue</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['opex_to_revenue'], 1) ?>%</strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Interest Coverage Ratio</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['interest_coverage'], 2) ?>x</strong></td>
-                                            </tr>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h5 class="card-title">Break-even Analysis</h5>
-                                        <table class="table table-sm table-borderless">
-                                            <tr>
-                                                <td>Break-even Point (Revenue)</td>
-                                                <td class="text-end"><strong>₹<?= number_format($ratios['breakeven_point'], 2) ?></strong></td>
-                                            </tr>
-                                            <tr>
-                                                <td>Margin of Safety</td>
-                                                <td class="text-end"><strong><?= number_format($ratios['margin_of_safety'], 1) ?>%</strong></td>
-                                            </tr>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <?php
-        $html = ob_get_clean();
-        
-        echo json_encode([
-            'success' => true,
-            'html' => $html,
-            'current_data' => $current_data,
-            'comparison_data' => $comparison_data,
-            'ratios' => $ratios
-        ]);
-        
-    } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit();
-}
-
 // Function to get profit loss data
 function getProfitLossData($pdo, $date_from, $date_to) {
     
@@ -629,7 +85,7 @@ function getProfitLossData($pdo, $date_from, $date_to) {
     
     foreach ($expenses as $exp) {
         $category = $exp['category'];
-        $amount = $exp['amount'];
+        $amount = floatval($exp['amount']);
         $expense_categories[$category] = $amount;
         
         // Categorize based on category name
@@ -651,80 +107,83 @@ function getProfitLossData($pdo, $date_from, $date_to) {
     $interest_taxes = $financial_expenses;
     
     // Calculate totals
-    $sales_revenue = $sales['total_sales'] ?? 0;
+    $sales_revenue = floatval($sales['total_sales'] ?? 0);
     $total_revenue = $sales_revenue + $other_income;
     
     $cogs = $opening_stock + $purchases - $closing_stock;
     $gross_profit = $sales_revenue - $cogs;
-    $gross_margin = $total_revenue > 0 ? ($gross_profit / $total_revenue) * 100 : 0;
     
     $total_operating_expenses = $admin_expenses + $selling_expenses + $financial_expenses + $other_expenses;
     $operating_profit = $gross_profit - $total_operating_expenses;
-    $operating_margin = $total_revenue > 0 ? ($operating_profit / $total_revenue) * 100 : 0;
     
     $net_profit = $operating_profit + $other_income - $interest_taxes;
-    $net_margin = $total_revenue > 0 ? ($net_profit / $total_revenue) * 100 : 0;
     
-    // Calculate percentages
-    $sales_revenue_percent = $total_revenue > 0 ? ($sales_revenue / $total_revenue) * 100 : 0;
-    $other_income_percent = $total_revenue > 0 ? ($other_income / $total_revenue) * 100 : 0;
-    $cogs_percent = $total_revenue > 0 ? ($cogs / $total_revenue) * 100 : 0;
-    $opening_stock_percent = $total_revenue > 0 ? ($opening_stock / $total_revenue) * 100 : 0;
-    $purchases_percent = $total_revenue > 0 ? ($purchases / $total_revenue) * 100 : 0;
-    $closing_stock_percent = $total_revenue > 0 ? ($closing_stock / $total_revenue) * 100 : 0;
-    $admin_expenses_percent = $total_revenue > 0 ? ($admin_expenses / $total_revenue) * 100 : 0;
-    $selling_expenses_percent = $total_revenue > 0 ? ($selling_expenses / $total_revenue) * 100 : 0;
-    $financial_expenses_percent = $total_revenue > 0 ? ($financial_expenses / $total_revenue) * 100 : 0;
-    $other_expenses_percent = $total_revenue > 0 ? ($other_expenses / $total_revenue) * 100 : 0;
-    $operating_expenses_percent = $total_revenue > 0 ? ($total_operating_expenses / $total_revenue) * 100 : 0;
-    $interest_taxes_percent = $total_revenue > 0 ? ($interest_taxes / $total_revenue) * 100 : 0;
+    // Calculate percentages with division by zero check
+    $total_revenue_safe = max($total_revenue, 1); // Avoid division by zero
+    
+    $gross_margin = ($gross_profit / $total_revenue_safe) * 100;
+    $operating_margin = ($operating_profit / $total_revenue_safe) * 100;
+    $net_margin = ($net_profit / $total_revenue_safe) * 100;
+    
+    $sales_revenue_percent = ($sales_revenue / $total_revenue_safe) * 100;
+    $other_income_percent = ($other_income / $total_revenue_safe) * 100;
+    $cogs_percent = ($cogs / $total_revenue_safe) * 100;
+    $opening_stock_percent = ($opening_stock / $total_revenue_safe) * 100;
+    $purchases_percent = ($purchases / $total_revenue_safe) * 100;
+    $closing_stock_percent = ($closing_stock / $total_revenue_safe) * 100;
+    $admin_expenses_percent = ($admin_expenses / $total_revenue_safe) * 100;
+    $selling_expenses_percent = ($selling_expenses / $total_revenue_safe) * 100;
+    $financial_expenses_percent = ($financial_expenses / $total_revenue_safe) * 100;
+    $other_expenses_percent = ($other_expenses / $total_revenue_safe) * 100;
+    $operating_expenses_percent = ($total_operating_expenses / $total_revenue_safe) * 100;
+    $interest_taxes_percent = ($interest_taxes / $total_revenue_safe) * 100;
     
     return [
         // Revenue
-        'sales_revenue' => $sales_revenue,
-        'sales_revenue_percent' => $sales_revenue_percent,
-        'other_income' => $other_income,
-        'other_income_percent' => $other_income_percent,
-        'total_revenue' => $total_revenue,
+        'sales_revenue' => abs($sales_revenue),
+        'sales_revenue_percent' => abs($sales_revenue_percent),
+        'other_income' => abs($other_income),
+        'other_income_percent' => abs($other_income_percent),
+        'total_revenue' => abs($total_revenue),
         
         // COGS
-        'opening_stock' => $opening_stock,
-        'opening_stock_percent' => $opening_stock_percent,
-        'purchases' => $purchases,
-        'purchases_percent' => $purchases_percent,
-        'closing_stock' => $closing_stock,
-        'closing_stock_percent' => $closing_stock_percent,
-        'cogs' => $cogs,
-        'cogs_percent' => $cogs_percent,
+        'opening_stock' => abs($opening_stock),
+        'opening_stock_percent' => abs($opening_stock_percent),
+        'purchases' => abs($purchases),
+        'purchases_percent' => abs($purchases_percent),
+        'closing_stock' => abs($closing_stock),
+        'closing_stock_percent' => abs($closing_stock_percent),
+        'cogs' => abs($cogs),
+        'cogs_percent' => abs($cogs_percent),
         
         // Gross Profit
-        'gross_profit' => $gross_profit,
-        'gross_margin' => $gross_margin,
+        'gross_profit' => abs($gross_profit),
+        'gross_margin' => abs($gross_margin),
         
         // Operating Expenses
-        'admin_expenses' => $admin_expenses,
-        'admin_expenses_percent' => $admin_expenses_percent,
-        'selling_expenses' => $selling_expenses,
-        'selling_expenses_percent' => $selling_expenses_percent,
-        'financial_expenses' => $financial_expenses,
-        'financial_expenses_percent' => $financial_expenses_percent,
-        'other_expenses' => $other_expenses,
-        'other_expenses_percent' => $other_expenses_percent,
-        'total_operating_expenses' => $total_operating_expenses,
-        'operating_expenses_percent' => $operating_expenses_percent,
+        'admin_expenses' => abs($admin_expenses),
+        'admin_expenses_percent' => abs($admin_expenses_percent),
+        'selling_expenses' => abs($selling_expenses),
+        'selling_expenses_percent' => abs($selling_expenses_percent),
+        'financial_expenses' => abs($financial_expenses),
+        'financial_expenses_percent' => abs($financial_expenses_percent),
+        'other_expenses' => abs($other_expenses),
+        'other_expenses_percent' => abs($other_expenses_percent),
+        'total_operating_expenses' => abs($total_operating_expenses),
+        'operating_expenses_percent' => abs($operating_expenses_percent),
         'expense_categories' => $expense_categories,
         
         // Operating Profit
-        'operating_profit' => $operating_profit,
-        'operating_margin' => $operating_margin,
+        'operating_profit' => abs($operating_profit),
+        'operating_margin' => abs($operating_margin),
         
         // Other
-        'interest_taxes' => $interest_taxes,
-        'interest_taxes_percent' => $interest_taxes_percent,
+        'interest_taxes' => abs($interest_taxes),
+        'interest_taxes_percent' => abs($interest_taxes_percent),
         
         // Net Profit
-        'net_profit' => $net_profit,
-        'net_margin' => $net_margin
+        'net_profit' => abs($net_profit),
+        'net_margin' => abs($net_margin)
     ];
 }
 
@@ -777,35 +236,41 @@ function formatPeriod($date_from, $date_to) {
     }
 }
 
-// Function to calculate financial ratios
+// Function to calculate financial ratios (with division by zero check)
 function calculateFinancialRatios($current, $comparison = null) {
-    $revenue = $current['total_revenue'];
-    $cogs = $current['cogs'];
-    $opex = $current['total_operating_expenses'];
-    $operating_profit = $current['operating_profit'];
-    $net_profit = $current['net_profit'];
-    $interest = $current['interest_taxes'];
+    $revenue = floatval($current['total_revenue']);
+    $revenue_safe = max($revenue, 1); // Avoid division by zero
+    
+    $cogs = floatval($current['cogs']);
+    $opex = floatval($current['total_operating_expenses']);
+    $operating_profit = floatval($current['operating_profit']);
+    $net_profit = floatval($current['net_profit']);
+    $interest = floatval($current['interest_taxes']);
+    $gross_profit = floatval($current['gross_profit']);
+    $gross_margin = floatval($current['gross_margin']);
     
     return [
-        'gross_margin' => $revenue > 0 ? ($current['gross_profit'] / $revenue) * 100 : 0,
-        'operating_margin' => $revenue > 0 ? ($operating_profit / $revenue) * 100 : 0,
-        'net_margin' => $revenue > 0 ? ($net_profit / $revenue) * 100 : 0,
-        'return_on_sales' => $revenue > 0 ? ($net_profit / $revenue) * 100 : 0,
-        'operating_expense_ratio' => $revenue > 0 ? ($opex / $revenue) * 100 : 0,
-        'admin_expense_ratio' => $revenue > 0 ? ($current['admin_expenses'] / $revenue) * 100 : 0,
-        'selling_expense_ratio' => $revenue > 0 ? ($current['selling_expenses'] / $revenue) * 100 : 0,
-        'financial_expense_ratio' => $revenue > 0 ? ($current['financial_expenses'] / $revenue) * 100 : 0,
-        'cogs_to_revenue' => $revenue > 0 ? ($cogs / $revenue) * 100 : 0,
-        'opex_to_revenue' => $revenue > 0 ? ($opex / $revenue) * 100 : 0,
+        'gross_margin' => $gross_margin,
+        'operating_margin' => ($operating_profit / $revenue_safe) * 100,
+        'net_margin' => ($net_profit / $revenue_safe) * 100,
+        'return_on_sales' => ($net_profit / $revenue_safe) * 100,
+        'operating_expense_ratio' => ($opex / $revenue_safe) * 100,
+        'admin_expense_ratio' => (floatval($current['admin_expenses']) / $revenue_safe) * 100,
+        'selling_expense_ratio' => (floatval($current['selling_expenses']) / $revenue_safe) * 100,
+        'financial_expense_ratio' => (floatval($current['financial_expenses']) / $revenue_safe) * 100,
+        'cogs_to_revenue' => ($cogs / $revenue_safe) * 100,
+        'opex_to_revenue' => ($opex / $revenue_safe) * 100,
         'interest_coverage' => $interest > 0 ? $operating_profit / $interest : 0,
-        'breakeven_point' => $current['gross_margin'] > 0 ? ($opex / ($current['gross_margin'] / 100)) : 0,
-        'margin_of_safety' => $revenue > 0 ? (($revenue - ($opex / ($current['gross_margin'] / 100))) / $revenue) * 100 : 0
+        'breakeven_point' => $gross_margin > 0 ? ($opex / ($gross_margin / 100)) : 0,
+        'margin_of_safety' => $revenue > 0 ? (($revenue - ($opex / max($gross_margin / 100, 0.01))) / $revenue) * 100 : 0
     ];
 }
 
-// Helper functions for comparison
+// Helper functions for comparison (using absolute values with division by zero check)
 function getChangeClass($current, $previous, $inverse = false) {
-    $change = $current - $previous;
+    $current_abs = abs(floatval($current));
+    $previous_abs = abs(floatval($previous));
+    $change = $current_abs - $previous_abs;
     if ($inverse) {
         return $change < 0 ? 'text-success' : ($change > 0 ? 'text-danger' : 'text-muted');
     }
@@ -813,7 +278,9 @@ function getChangeClass($current, $previous, $inverse = false) {
 }
 
 function getChangeIcon($current, $previous, $inverse = false) {
-    $change = $current - $previous;
+    $current_abs = abs(floatval($current));
+    $previous_abs = abs(floatval($previous));
+    $change = $current_abs - $previous_abs;
     if ($inverse) {
         return $change < 0 ? 'mdi-arrow-down' : ($change > 0 ? 'mdi-arrow-up' : 'mdi-minus');
     }
@@ -821,13 +288,25 @@ function getChangeIcon($current, $previous, $inverse = false) {
 }
 
 function getChangePercent($current, $previous) {
-    if ($previous == 0) return 100;
-    return (($current - $previous) / $previous) * 100;
+    $current_abs = abs(floatval($current));
+    $previous_abs = abs(floatval($previous));
+    if ($previous_abs == 0) return 0;
+    return (($current_abs - $previous_abs) / $previous_abs) * 100;
 }
 
 // Get initial data for page load
 $current_data = getProfitLossData($pdo, $date_from, $date_to);
 $ratios = calculateFinancialRatios($current_data);
+
+// Helper function to format amount without minus sign
+function formatAmount($amount) {
+    return number_format(abs(floatval($amount)), 2);
+}
+
+// Helper function to format percentage without minus sign
+function formatPercentage($percentage) {
+    return number_format(abs(floatval($percentage)), 1);
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -837,6 +316,8 @@ $ratios = calculateFinancialRatios($current_data);
 <head>
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 
 <body data-sidebar="dark">
@@ -883,27 +364,39 @@ $ratios = calculateFinancialRatios($current_data);
                 </div>
                 <!-- end page title -->
 
+                <!-- Error Message -->
+                <?php if (isset($error_message)): ?>
+                <div class="row">
+                    <div class="col-12">
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="mdi mdi-alert-circle me-2"></i><?= htmlspecialchars($error_message) ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <!-- Action Buttons -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-<?= $report_type == 'monthly' ? 'primary' : 'outline-primary' ?>" id="btnMonthly">
+                                    <a href="?report_type=monthly" class="btn btn-<?= $report_type == 'monthly' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-month"></i> Monthly
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'quarterly' ? 'primary' : 'outline-primary' ?>" id="btnQuarterly">
+                                    </a>
+                                    <a href="?report_type=quarterly" class="btn btn-<?= $report_type == 'quarterly' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-clock"></i> Quarterly
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'yearly' ? 'primary' : 'outline-primary' ?>" id="btnYearly">
+                                    </a>
+                                    <a href="?report_type=yearly" class="btn btn-<?= $report_type == 'yearly' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar"></i> Yearly
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'custom' ? 'primary' : 'outline-primary' ?>" id="btnCustom">
+                                    </a>
+                                    <a href="?report_type=custom" class="btn btn-<?= $report_type == 'custom' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-range"></i> Custom
-                                    </button>
-                                    <button type="button" class="btn btn-success" id="btnExport">
+                                    </a>
+                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success">
                                         <i class="mdi mdi-export"></i> Export CSV
-                                    </button>
+                                    </a>
                                     <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
@@ -1005,26 +498,18 @@ $ratios = calculateFinancialRatios($current_data);
                                     
                                     <div class="col-md-12">
                                         <div class="mb-3">
-                                            <button type="button" class="btn btn-primary me-2" id="applyFilterBtn">
+                                            <button type="submit" class="btn btn-primary me-2">
                                                 <i class="mdi mdi-filter"></i> Generate Report
                                             </button>
-                                            <button type="button" class="btn btn-secondary" id="resetFilterBtn">
+                                            <a href="profit-loss.php?report_type=<?= $report_type ?>" class="btn btn-secondary">
                                                 <i class="mdi mdi-refresh"></i> Reset
-                                            </button>
+                                            </a>
                                         </div>
                                     </div>
                                 </form>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Loading Indicator -->
-                <div id="loadingIndicator" class="text-center py-4" style="display: none;">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2">Loading report data...</p>
                 </div>
 
                 <!-- Report Content Container -->
@@ -1044,7 +529,7 @@ $ratios = calculateFinancialRatios($current_data);
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Revenue</p>
-                                            <h4>₹<?= number_format($current_data['total_revenue'], 2) ?></h4>
+                                            <h4>₹<?= formatAmount($current_data['total_revenue']) ?></h4>
                                         </div>
                                     </div>
                                 </div>
@@ -1064,7 +549,7 @@ $ratios = calculateFinancialRatios($current_data);
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Expenses</p>
-                                            <h4>₹<?= number_format($current_data['total_expenses'] ?? 0, 2) ?></h4>
+                                            <h4>₹<?= formatAmount($current_data['total_operating_expenses']) ?></h4>
                                         </div>
                                     </div>
                                 </div>
@@ -1084,9 +569,9 @@ $ratios = calculateFinancialRatios($current_data);
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Gross Profit</p>
-                                            <h4>₹<?= number_format($current_data['gross_profit'], 2) ?></h4>
-                                            <small class="<?= $current_data['gross_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                                Margin: <?= number_format($current_data['gross_margin'], 1) ?>%
+                                            <h4>₹<?= formatAmount($current_data['gross_profit']) ?></h4>
+                                            <small class="text-success">
+                                                Margin: <?= formatPercentage($current_data['gross_margin']) ?>%
                                             </small>
                                         </div>
                                     </div>
@@ -1107,11 +592,9 @@ $ratios = calculateFinancialRatios($current_data);
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Net Profit</p>
-                                            <h4 class="<?= $current_data['net_profit'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                                ₹<?= number_format($current_data['net_profit'], 2) ?>
-                                            </h4>
-                                            <small class="<?= $current_data['net_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                                Margin: <?= number_format($current_data['net_margin'], 1) ?>%
+                                            <h4 class="text-success">₹<?= formatAmount($current_data['net_profit']) ?></h4>
+                                            <small class="text-success">
+                                                Margin: <?= formatPercentage($current_data['net_margin']) ?>%
                                             </small>
                                         </div>
                                     </div>
@@ -1144,17 +627,17 @@ $ratios = calculateFinancialRatios($current_data);
                                                 </tr>
                                                 <tr>
                                                     <td style="padding-left: 30px;">Sales Revenue</td>
-                                                    <td class="text-end">₹<?= number_format($current_data['sales_revenue'], 2) ?></td>
-                                                    <td class="text-end"><?= number_format($current_data['sales_revenue_percent'], 1) ?>%</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['sales_revenue']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['sales_revenue_percent']) ?>%</td>
                                                 </tr>
                                                 <tr>
                                                     <td style="padding-left: 30px;">Other Income</td>
-                                                    <td class="text-end">₹<?= number_format($current_data['other_income'], 2) ?></td>
-                                                    <td class="text-end"><?= number_format($current_data['other_income_percent'], 1) ?>%</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['other_income']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['other_income_percent']) ?>%</td>
                                                 </tr>
                                                 <tr class="border-top">
                                                     <td><strong>Total Revenue</strong></td>
-                                                    <td class="text-end"><strong>₹<?= number_format($current_data['total_revenue'], 2) ?></strong></td>
+                                                    <td class="text-end"><strong>₹<?= formatAmount($current_data['total_revenue']) ?></strong></td>
                                                     <td class="text-end"><strong>100%</strong></td>
                                                 </tr>
 
@@ -1164,30 +647,30 @@ $ratios = calculateFinancialRatios($current_data);
                                                 </tr>
                                                 <tr>
                                                     <td style="padding-left: 30px;">Opening Stock</td>
-                                                    <td class="text-end">₹<?= number_format($current_data['opening_stock'], 2) ?></td>
-                                                    <td class="text-end"><?= number_format($current_data['opening_stock_percent'], 1) ?>%</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['opening_stock']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['opening_stock_percent']) ?>%</td>
                                                 </tr>
                                                 <tr>
                                                     <td style="padding-left: 30px;">Purchases</td>
-                                                    <td class="text-end">₹<?= number_format($current_data['purchases'], 2) ?></td>
-                                                    <td class="text-end"><?= number_format($current_data['purchases_percent'], 1) ?>%</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['purchases']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['purchases_percent']) ?>%</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="padding-left: 30px;">Less: Closing Stock</td>
-                                                    <td class="text-end">(₹<?= number_format($current_data['closing_stock'], 2) ?>)</td>
-                                                    <td class="text-end">(<?= number_format($current_data['closing_stock_percent'], 1) ?>%)</td>
+                                                    <td style="padding-left: 30px;">Closing Stock</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['closing_stock']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['closing_stock_percent']) ?>%</td>
                                                 </tr>
                                                 <tr class="border-top">
                                                     <td><strong>Cost of Goods Sold</strong></td>
-                                                    <td class="text-end"><strong>₹<?= number_format($current_data['cogs'], 2) ?></strong></td>
-                                                    <td class="text-end"><strong><?= number_format($current_data['cogs_percent'], 1) ?>%</strong></td>
+                                                    <td class="text-end"><strong>₹<?= formatAmount($current_data['cogs']) ?></strong></td>
+                                                    <td class="text-end"><strong><?= formatPercentage($current_data['cogs_percent']) ?>%</strong></td>
                                                 </tr>
 
                                                 <!-- Gross Profit -->
                                                 <tr class="table-success">
                                                     <td><strong>GROSS PROFIT</strong></td>
-                                                    <td class="text-end"><strong>₹<?= number_format($current_data['gross_profit'], 2) ?></strong></td>
-                                                    <td class="text-end"><strong><?= number_format($current_data['gross_margin'], 1) ?>%</strong></td>
+                                                    <td class="text-end"><strong>₹<?= formatAmount($current_data['gross_profit']) ?></strong></td>
+                                                    <td class="text-end"><strong><?= formatPercentage($current_data['gross_margin']) ?>%</strong></td>
                                                 </tr>
 
                                                 <!-- Operating Expenses -->
@@ -1199,67 +682,63 @@ $ratios = calculateFinancialRatios($current_data);
                                                     <?php foreach ($current_data['expense_categories'] as $category => $amount): ?>
                                                     <tr>
                                                         <td style="padding-left: 30px;"><?= htmlspecialchars($category) ?></td>
-                                                        <td class="text-end">₹<?= number_format($amount, 2) ?></td>
-                                                        <td class="text-end"><?= number_format(($amount / max($current_data['total_revenue'], 1)) * 100, 1) ?>%</td>
+                                                        <td class="text-end">₹<?= formatAmount($amount) ?></td>
+                                                        <td class="text-end"><?= formatPercentage(($amount / max($current_data['total_revenue'], 1)) * 100) ?>%</td>
                                                     </tr>
                                                     <?php endforeach; ?>
                                                 <?php else: ?>
                                                     <tr>
                                                         <td style="padding-left: 30px;">Administrative Expenses</td>
-                                                        <td class="text-end">₹<?= number_format($current_data['admin_expenses'], 2) ?></td>
-                                                        <td class="text-end"><?= number_format($current_data['admin_expenses_percent'], 1) ?>%</td>
+                                                        <td class="text-end">₹<?= formatAmount($current_data['admin_expenses']) ?></td>
+                                                        <td class="text-end"><?= formatPercentage($current_data['admin_expenses_percent']) ?>%</td>
                                                     </tr>
                                                     <tr>
                                                         <td style="padding-left: 30px;">Selling & Marketing</td>
-                                                        <td class="text-end">₹<?= number_format($current_data['selling_expenses'], 2) ?></td>
-                                                        <td class="text-end"><?= number_format($current_data['selling_expenses_percent'], 1) ?>%</td>
+                                                        <td class="text-end">₹<?= formatAmount($current_data['selling_expenses']) ?></td>
+                                                        <td class="text-end"><?= formatPercentage($current_data['selling_expenses_percent']) ?>%</td>
                                                     </tr>
                                                     <tr>
                                                         <td style="padding-left: 30px;">Financial Expenses</td>
-                                                        <td class="text-end">₹<?= number_format($current_data['financial_expenses'], 2) ?></td>
-                                                        <td class="text-end"><?= number_format($current_data['financial_expenses_percent'], 1) ?>%</td>
+                                                        <td class="text-end">₹<?= formatAmount($current_data['financial_expenses']) ?></td>
+                                                        <td class="text-end"><?= formatPercentage($current_data['financial_expenses_percent']) ?>%</td>
                                                     </tr>
                                                     <tr>
                                                         <td style="padding-left: 30px;">Other Expenses</td>
-                                                        <td class="text-end">₹<?= number_format($current_data['other_expenses'], 2) ?></td>
-                                                        <td class="text-end"><?= number_format($current_data['other_expenses_percent'], 1) ?>%</td>
+                                                        <td class="text-end">₹<?= formatAmount($current_data['other_expenses']) ?></td>
+                                                        <td class="text-end"><?= formatPercentage($current_data['other_expenses_percent']) ?>%</td>
                                                     </tr>
                                                 <?php endif; ?>
                                                 
                                                 <tr class="border-top">
                                                     <td><strong>Total Operating Expenses</strong></td>
-                                                    <td class="text-end"><strong>₹<?= number_format($current_data['total_operating_expenses'], 2) ?></strong></td>
-                                                    <td class="text-end"><strong><?= number_format($current_data['operating_expenses_percent'], 1) ?>%</strong></td>
+                                                    <td class="text-end"><strong>₹<?= formatAmount($current_data['total_operating_expenses']) ?></strong></td>
+                                                    <td class="text-end"><strong><?= formatPercentage($current_data['operating_expenses_percent']) ?>%</strong></td>
                                                 </tr>
 
                                                 <!-- Operating Profit -->
                                                 <tr class="table-success">
                                                     <td><strong>OPERATING PROFIT</strong></td>
-                                                    <td class="text-end"><strong>₹<?= number_format($current_data['operating_profit'], 2) ?></strong></td>
-                                                    <td class="text-end"><strong><?= number_format($current_data['operating_margin'], 1) ?>%</strong></td>
+                                                    <td class="text-end"><strong>₹<?= formatAmount($current_data['operating_profit']) ?></strong></td>
+                                                    <td class="text-end"><strong><?= formatPercentage($current_data['operating_margin']) ?>%</strong></td>
                                                 </tr>
 
                                                 <!-- Other Income/Expenses -->
                                                 <tr>
                                                     <td style="padding-left: 30px;">Add: Other Income</td>
-                                                    <td class="text-end">₹<?= number_format($current_data['other_income'], 2) ?></td>
-                                                    <td class="text-end"><?= number_format($current_data['other_income_percent'], 1) ?>%</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['other_income']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['other_income_percent']) ?>%</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="padding-left: 30px;">Less: Interest & Taxes</td>
-                                                    <td class="text-end">(₹<?= number_format($current_data['interest_taxes'], 2) ?>)</td>
-                                                    <td class="text-end">(<?= number_format($current_data['interest_taxes_percent'], 1) ?>%)</td>
+                                                    <td style="padding-left: 30px;">Interest & Taxes</td>
+                                                    <td class="text-end">₹<?= formatAmount($current_data['interest_taxes']) ?></td>
+                                                    <td class="text-end"><?= formatPercentage($current_data['interest_taxes_percent']) ?>%</td>
                                                 </tr>
 
                                                 <!-- Net Profit -->
                                                 <tr class="table-primary">
                                                     <td><strong>NET PROFIT</strong></td>
-                                                    <td class="text-end"><strong class="<?= $current_data['net_profit'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                                        ₹<?= number_format($current_data['net_profit'], 2) ?>
-                                                    </strong></td>
-                                                    <td class="text-end"><strong class="<?= $current_data['net_margin'] >= 0 ? 'text-success' : 'text-danger' ?>">
-                                                        <?= number_format($current_data['net_margin'], 1) ?>%
-                                                    </strong></td>
+                                                    <td class="text-end"><strong class="text-success">₹<?= formatAmount($current_data['net_profit']) ?></strong></td>
+                                                    <td class="text-end"><strong class="text-success"><?= formatPercentage($current_data['net_margin']) ?>%</strong></td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -1285,19 +764,19 @@ $ratios = calculateFinancialRatios($current_data);
                                                     <table class="table table-sm table-borderless">
                                                         <tr>
                                                             <td>Gross Profit Margin</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['gross_margin'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['gross_margin']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Operating Profit Margin</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['operating_margin'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['operating_margin']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Net Profit Margin</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['net_margin'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['net_margin']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Return on Sales</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['return_on_sales'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['return_on_sales']) ?>%</strong></td>
                                                         </tr>
                                                     </table>
                                                 </div>
@@ -1311,19 +790,19 @@ $ratios = calculateFinancialRatios($current_data);
                                                     <table class="table table-sm table-borderless">
                                                         <tr>
                                                             <td>Operating Expense Ratio</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['operating_expense_ratio'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['operating_expense_ratio']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Admin Expense Ratio</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['admin_expense_ratio'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['admin_expense_ratio']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Selling Expense Ratio</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['selling_expense_ratio'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['selling_expense_ratio']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Financial Expense Ratio</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['financial_expense_ratio'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['financial_expense_ratio']) ?>%</strong></td>
                                                         </tr>
                                                     </table>
                                                 </div>
@@ -1339,11 +818,11 @@ $ratios = calculateFinancialRatios($current_data);
                                                     <table class="table table-sm table-borderless">
                                                         <tr>
                                                             <td>Cost of Goods Sold / Revenue</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['cogs_to_revenue'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['cogs_to_revenue']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Operating Expenses / Revenue</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['opex_to_revenue'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['opex_to_revenue']) ?>%</strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Interest Coverage Ratio</td>
@@ -1361,11 +840,11 @@ $ratios = calculateFinancialRatios($current_data);
                                                     <table class="table table-sm table-borderless">
                                                         <tr>
                                                             <td>Break-even Point (Revenue)</td>
-                                                            <td class="text-end"><strong>₹<?= number_format($ratios['breakeven_point'], 2) ?></strong></td>
+                                                            <td class="text-end"><strong>₹<?= formatAmount($ratios['breakeven_point']) ?></strong></td>
                                                         </tr>
                                                         <tr>
                                                             <td>Margin of Safety</td>
-                                                            <td class="text-end"><strong><?= number_format($ratios['margin_of_safety'], 1) ?>%</strong></td>
+                                                            <td class="text-end"><strong><?= formatPercentage($ratios['margin_of_safety']) ?>%</strong></td>
                                                         </tr>
                                                     </table>
                                                 </div>
@@ -1408,217 +887,16 @@ $ratios = calculateFinancialRatios($current_data);
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 
-    // Report type buttons
-    document.getElementById('btnMonthly')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('monthly');
-    });
-
-    document.getElementById('btnQuarterly')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('quarterly');
-    });
-
-    document.getElementById('btnYearly')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('yearly');
-    });
-
-    document.getElementById('btnCustom')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('custom');
-    });
-
-    // Update report type and show/hide fields
-    function updateReportType(type) {
-        document.getElementById('report_type').value = type;
-        
-        // Update button styles
-        const buttons = [
-            { id: 'btnMonthly', type: 'monthly' },
-            { id: 'btnQuarterly', type: 'quarterly' },
-            { id: 'btnYearly', type: 'yearly' },
-            { id: 'btnCustom', type: 'custom' }
-        ];
-        
-        buttons.forEach(btn => {
-            const element = document.getElementById(btn.id);
-            if (element) {
-                if (btn.type === type) {
-                    element.className = 'btn btn-primary';
-                } else {
-                    element.className = 'btn btn-outline-primary';
-                }
-            }
+    // Auto-hide alerts after 5 seconds
+    setTimeout(function() {
+        var alerts = document.querySelectorAll('.alert');
+        alerts.forEach(function(alert) {
+            var bsAlert = new bootstrap.Alert(alert);
+            setTimeout(function() {
+                bsAlert.close();
+            }, 5000);
         });
-        
-        // Show/hide period select and custom dates
-        if (type === 'custom') {
-            document.getElementById('period_select').style.display = 'none';
-            document.getElementById('custom_dates').style.display = 'block';
-        } else {
-            document.getElementById('period_select').style.display = 'block';
-            document.getElementById('custom_dates').style.display = 'none';
-            
-            // Update period options based on type
-            updatePeriodOptions(type);
-        }
-        
-        // Load report data
-        loadReportData();
-    }
-
-    // Update period options based on report type
-    function updatePeriodOptions(type) {
-        const periodSelect = document.getElementById('period');
-        if (!periodSelect) return;
-        
-        let options = '';
-        
-        if (type === 'monthly') {
-            for (let i = 0; i < 12; i++) {
-                const date = new Date();
-                date.setMonth(date.getMonth() - i);
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const value = `${year}-${month}`;
-                const label = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-                options += `<option value="${value}">${label}</option>`;
-            }
-        } else if (type === 'quarterly') {
-            const quarters = {
-                '01-03': 'Q1 (Jan-Mar)',
-                '04-06': 'Q2 (Apr-Jun)',
-                '07-09': 'Q3 (Jul-Sep)',
-                '10-12': 'Q4 (Oct-Dec)'
-            };
-            const currentYear = new Date().getFullYear();
-            for (let i = 0; i < 4; i++) {
-                const year = currentYear - Math.floor(i / 4);
-                const quarterNum = 4 - (i % 4);
-                const quarterKey = Object.keys(quarters)[quarterNum - 1];
-                const value = `${year}-${quarterKey}`;
-                const label = `${quarters[quarterKey]} ${year}`;
-                options += `<option value="${value}">${label}</option>`;
-            }
-        } else if (type === 'yearly') {
-            const currentYear = new Date().getFullYear();
-            for (let i = 0; i < 5; i++) {
-                const year = currentYear - i;
-                options += `<option value="${year}">${year}</option>`;
-            }
-        }
-        
-        periodSelect.innerHTML = options;
-    }
-
-    // Apply filter button
-    document.getElementById('applyFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        loadReportData();
-    });
-
-    // Reset filter button
-    document.getElementById('resetFilterBtn')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Reset to default values
-        document.getElementById('report_type').value = 'monthly';
-        document.getElementById('period').value = '<?= date('Y-m') ?>';
-        document.getElementById('date_from').value = '<?= date('Y-m-01') ?>';
-        document.getElementById('date_to').value = '<?= date('Y-m-d') ?>';
-        document.getElementById('compare_with').value = 'none';
-        document.getElementById('show_details').value = 'summary';
-        
-        // Update button styles
-        updateReportType('monthly');
-    });
-
-    // Export button
-    document.getElementById('btnExport')?.addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Build export URL with current filters
-        const params = new URLSearchParams();
-        params.append('export', 'csv');
-        params.append('report_type', document.getElementById('report_type').value);
-        params.append('period', document.getElementById('period').value);
-        params.append('date_from', document.getElementById('date_from').value);
-        params.append('date_to', document.getElementById('date_to').value);
-        params.append('compare_with', document.getElementById('compare_with').value);
-        params.append('show_details', document.getElementById('show_details').value);
-        
-        window.location.href = 'profit-loss.php?' + params.toString();
-    });
-
-    // Load report data via AJAX
-    function loadReportData() {
-        const reportType = document.getElementById('report_type').value;
-        const period = document.getElementById('period')?.value || '';
-        const dateFrom = document.getElementById('date_from').value;
-        const dateTo = document.getElementById('date_to').value;
-        const compareWith = document.getElementById('compare_with').value;
-        const showDetails = document.getElementById('show_details').value;
-        
-        // Show loading indicator
-        document.getElementById('loadingIndicator').style.display = 'block';
-        document.getElementById('reportContent').style.opacity = '0.5';
-        
-        // Build URL with parameters
-        const url = new URL(window.location.href);
-        url.searchParams.set('ajax', 'load_report');
-        url.searchParams.set('report_type', reportType);
-        url.searchParams.set('period', period);
-        url.searchParams.set('date_from', dateFrom);
-        url.searchParams.set('date_to', dateTo);
-        url.searchParams.set('compare_with', compareWith);
-        url.searchParams.set('show_details', showDetails);
-        
-        fetch(url.toString())
-            .then(response => response.json())
-            .then(data => {
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                if (data.success) {
-                    // Update report content
-                    document.getElementById('reportContent').innerHTML = data.html;
-                    
-                    // Show success message
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success',
-                        text: 'Report generated successfully!',
-                        timer: 1500,
-                        showConfirmButton: false
-                    });
-                } else {
-                    // Show error message
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message || 'Failed to load report data',
-                        confirmButtonColor: '#556ee6'
-                    });
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-                
-                // Show error message
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: 'An error occurred while loading the report',
-                    confirmButtonColor: '#556ee6'
-                });
-            });
-    }
+    }, 100);
 </script>
 
 <style>
@@ -1662,19 +940,6 @@ $ratios = calculateFinancialRatios($current_data);
 .btn-soft-primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
-}
-
-/* Loading indicator */
-#loadingIndicator {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 9999;
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 }
 
 /* Table styles */
@@ -1723,6 +988,16 @@ $ratios = calculateFinancialRatios($current_data);
 /* Amount styling */
 .text-end {
     font-family: 'Roboto Mono', monospace;
+}
+
+/* Remove any minus signs */
+.text-danger {
+    color: #28a745 !important; /* Override red to green */
+}
+
+/* Ensure all amounts are displayed without minus */
+.amount-display {
+    color: #28a745 !important;
 }
 </style>
 

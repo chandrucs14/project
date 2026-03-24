@@ -17,7 +17,7 @@ $date_to = isset($_GET['date_to']) ? $_GET['date_to'] : date('Y-m-d');
 $customer_id = isset($_GET['customer_id']) ? $_GET['customer_id'] : '';
 $product_id = isset($_GET['product_id']) ? $_GET['product_id'] : '';
 $category_id = isset($_GET['category_id']) ? $_GET['category_id'] : '';
-$status = isset($_GET['status']) ? $_GET['status'] : 'all'; // all, paid, pending, overdue
+$status = isset($_GET['status']) ? $_GET['status'] : 'all'; // all, paid, sent, overdue
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
 // Handle AJAX request for report data
@@ -87,7 +87,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
         ob_start();
         ?>
         <div class="row">
-            <div class="col-md-3">
+            <div class="col-xl-3 col-md-6">
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex align-items-center">
@@ -100,14 +100,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Total Sales</p>
-                                <h4>₹<?= number_format($summary['total_sales'] ?? 0, 2) ?></h4>
-                                <small class="text-muted"><?= $summary['total_transactions'] ?? 0 ?> transactions</small>
+                                <h4>₹<?= number_format(max(0, $summary['total_sales'] ?? 0), 2) ?></h4>
+                                <small class="text-muted"><?= number_format(max(0, $summary['total_transactions'] ?? 0)) ?> transactions</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-xl-3 col-md-6">
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex align-items-center">
@@ -120,14 +120,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Cash Sales</p>
-                                <h4>₹<?= number_format($summary['cash_sales'] ?? 0, 2) ?></h4>
-                                <small class="text-muted"><?= $summary['cash_count'] ?? 0 ?> transactions</small>
+                                <h4>₹<?= number_format(max(0, $summary['cash_sales'] ?? 0), 2) ?></h4>
+                                <small class="text-muted"><?= number_format(max(0, $summary['cash_count'] ?? 0)) ?> transactions</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-xl-3 col-md-6">
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex align-items-center">
@@ -140,14 +140,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Credit Sales</p>
-                                <h4>₹<?= number_format($summary['credit_sales'] ?? 0, 2) ?></h4>
-                                <small class="text-muted"><?= $summary['credit_count'] ?? 0 ?> transactions</small>
+                                <h4>₹<?= number_format(max(0, $summary['credit_sales'] ?? 0), 2) ?></h4>
+                                <small class="text-muted"><?= number_format(max(0, $summary['credit_count'] ?? 0)) ?> transactions</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-xl-3 col-md-6">
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex align-items-center">
@@ -160,7 +160,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Avg. Transaction</p>
-                                <h4>₹<?= number_format($summary['avg_transaction'] ?? 0, 2) ?></h4>
+                                <h4>₹<?= number_format(max(0, $summary['avg_transaction'] ?? 0), 2) ?></h4>
                                 <small class="text-muted">Per sale</small>
                             </div>
                         </div>
@@ -180,7 +180,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                 </div>
             </div>
         </div>
-        <?php elseif ($report_type == 'product'): ?>
+        <?php elseif ($report_type == 'product' && !empty($chart_data['products'])): ?>
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -191,7 +191,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                 </div>
             </div>
         </div>
-        <?php elseif ($report_type == 'customer'): ?>
+        <?php elseif ($report_type == 'customer' && !empty($chart_data['customers'])): ?>
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -202,7 +202,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                 </div>
             </div>
         </div>
-        <?php elseif ($report_type == 'category'): ?>
+        <?php elseif ($report_type == 'category' && !empty($chart_data['categories'])): ?>
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -226,36 +226,36 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                     <?php if ($report_type == 'daily'): ?>
                                     <tr>
                                         <th>Date</th>
-                                        <th>Transactions</th>
-                                        <th class="text-end">Cash Sales</th>
-                                        <th class="text-end">Credit Sales</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Net Sales</th>
+                                        <th class="text-end">Transactions</th>
+                                        <th class="text-end">Cash Sales (₹)</th>
+                                        <th class="text-end">Credit Sales (₹)</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Discount (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
                                     </tr>
                                     <?php elseif ($report_type == 'monthly'): ?>
                                     <tr>
                                         <th>Month</th>
                                         <th>Year</th>
-                                        <th>Transactions</th>
-                                        <th class="text-end">Cash Sales</th>
-                                        <th class="text-end">Credit Sales</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Net Sales</th>
+                                        <th class="text-end">Transactions</th>
+                                        <th class="text-end">Cash Sales (₹)</th>
+                                        <th class="text-end">Credit Sales (₹)</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Discount (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
                                     </tr>
                                     <?php elseif ($report_type == 'yearly'): ?>
                                     <tr>
                                         <th>Year</th>
-                                        <th>Transactions</th>
-                                        <th class="text-end">Cash Sales</th>
-                                        <th class="text-end">Credit Sales</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Net Sales</th>
+                                        <th class="text-end">Transactions</th>
+                                        <th class="text-end">Cash Sales (₹)</th>
+                                        <th class="text-end">Credit Sales (₹)</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Discount (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
                                     </tr>
                                     <?php elseif ($report_type == 'product'): ?>
                                     <tr>
@@ -263,10 +263,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                         <th>Category</th>
                                         <th>Unit</th>
                                         <th class="text-end">Quantity Sold</th>
-                                        <th class="text-end">Avg. Price</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Net Sales</th>
+                                        <th class="text-end">Avg. Price (₹)</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
                                     </tr>
                                     <?php elseif ($report_type == 'customer'): ?>
                                     <tr>
@@ -274,11 +274,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                         <th>Code</th>
                                         <th>Phone</th>
                                         <th class="text-end">Transactions</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Net Sales</th>
-                                        <th class="text-end">Avg. per Transaction</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Discount (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
+                                        <th class="text-end">Avg. per Transaction (₹)</th>
                                     </tr>
                                     <?php elseif ($report_type == 'category'): ?>
                                     <tr>
@@ -286,9 +286,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                         <th class="text-end">Products</th>
                                         <th class="text-end">Transactions</th>
                                         <th class="text-end">Quantity Sold</th>
-                                        <th class="text-end">Total Sales</th>
-                                        <th class="text-end">GST</th>
-                                        <th class="text-end">Net Sales</th>
+                                        <th class="text-end">Total Sales (₹)</th>
+                                        <th class="text-end">GST (₹)</th>
+                                        <th class="text-end">Net Sales (₹)</th>
                                     </tr>
                                     <?php endif; ?>
                                 </thead>
@@ -305,64 +305,64 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                         <tr>
                                             <?php if ($report_type == 'daily'): ?>
                                             <td><?= date('d M Y', strtotime($row['sale_date'])) ?></td>
-                                            <td><?= $row['transaction_count'] ?></td>
-                                            <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                            <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                            <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                             
                                             <?php elseif ($report_type == 'monthly'): ?>
                                             <td><?= DateTime::createFromFormat('!m', $row['sale_month'])->format('F') ?></td>
                                             <td><?= $row['sale_year'] ?></td>
-                                            <td><?= $row['transaction_count'] ?></td>
-                                            <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                            <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                            <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                             
                                             <?php elseif ($report_type == 'yearly'): ?>
                                             <td><?= $row['sale_year'] ?></td>
-                                            <td><?= $row['transaction_count'] ?></td>
-                                            <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                            <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                            <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                             
                                             <?php elseif ($report_type == 'product'): ?>
                                             <td><strong><?= htmlspecialchars($row['product_name']) ?></strong></td>
                                             <td><?= htmlspecialchars($row['category_name'] ?? 'N/A') ?></td>
                                             <td><?= htmlspecialchars($row['unit']) ?></td>
-                                            <td class="text-end"><?= number_format($row['quantity_sold'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['avg_price'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['quantity_sold']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['avg_price']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                             
                                             <?php elseif ($report_type == 'customer'): ?>
                                             <td><strong><?= htmlspecialchars($row['customer_name']) ?></strong></td>
                                             <td><?= htmlspecialchars($row['customer_code']) ?></td>
                                             <td><?= htmlspecialchars($row['phone']) ?></td>
-                                            <td class="text-end"><?= $row['transaction_count'] ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['avg_transaction'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['avg_transaction']), 2) ?></td>
                                             
                                             <?php elseif ($report_type == 'category'): ?>
                                             <td><strong><?= htmlspecialchars($row['category_name'] ?? 'Uncategorized') ?></strong></td>
-                                            <td class="text-end"><?= $row['product_count'] ?></td>
-                                            <td class="text-end"><?= $row['transaction_count'] ?></td>
-                                            <td class="text-end"><?= number_format($row['quantity_sold'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['product_count'])) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                            <td class="text-end"><?= number_format(max(0, $row['quantity_sold']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                             <?php endif; ?>
                                         </tr>
                                         <?php endforeach; ?>
@@ -397,12 +397,12 @@ function getDailySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pro
         SELECT 
             DATE(i.invoice_date) as sale_date,
             COUNT(DISTINCT i.id) as transaction_count,
-            SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END) as cash_sales,
-            SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END) as credit_sales,
-            SUM(i.total_amount) as total_sales,
-            SUM(i.gst_total) as total_gst,
-            SUM(i.discount_amount) as total_discount,
-            SUM(i.subtotal) as net_sales
+            COALESCE(SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END), 0) as cash_sales,
+            COALESCE(SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END), 0) as credit_sales,
+            COALESCE(SUM(i.total_amount), 0) as total_sales,
+            COALESCE(SUM(i.gst_total), 0) as total_gst,
+            COALESCE(SUM(i.discount_amount), 0) as total_discount,
+            COALESCE(SUM(i.subtotal), 0) as net_sales
         FROM invoices i
         WHERE i.invoice_date BETWEEN :date_from AND :date_to
         AND i.status != 'cancelled'
@@ -449,13 +449,16 @@ function getDailySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pro
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['cash_sales'] += $row['cash_sales'];
-        $summary['credit_sales'] += $row['credit_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['total_discount'] += $row['total_discount'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['cash_sales'] += max(0, $row['cash_sales']);
+        $summary['credit_sales'] += max(0, $row['credit_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['total_discount'] += max(0, $row['total_discount']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
+        
+        if ($row['cash_sales'] > 0) $summary['cash_count'] += $row['transaction_count'];
+        if ($row['credit_sales'] > 0) $summary['credit_count'] += $row['transaction_count'];
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -472,9 +475,9 @@ function getDailySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pro
     
     foreach ($data as $row) {
         $chart_data['categories'][] = date('d M', strtotime($row['sale_date']));
-        $chart_data['cash'][] = $row['cash_sales'];
-        $chart_data['credit'][] = $row['credit_sales'];
-        $chart_data['total'][] = $row['total_sales'];
+        $chart_data['cash'][] = max(0, $row['cash_sales']);
+        $chart_data['credit'][] = max(0, $row['credit_sales']);
+        $chart_data['total'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -487,12 +490,12 @@ function getMonthlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $p
             MONTH(i.invoice_date) as sale_month,
             YEAR(i.invoice_date) as sale_year,
             COUNT(DISTINCT i.id) as transaction_count,
-            SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END) as cash_sales,
-            SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END) as credit_sales,
-            SUM(i.total_amount) as total_sales,
-            SUM(i.gst_total) as total_gst,
-            SUM(i.discount_amount) as total_discount,
-            SUM(i.subtotal) as net_sales
+            COALESCE(SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END), 0) as cash_sales,
+            COALESCE(SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END), 0) as credit_sales,
+            COALESCE(SUM(i.total_amount), 0) as total_sales,
+            COALESCE(SUM(i.gst_total), 0) as total_gst,
+            COALESCE(SUM(i.discount_amount), 0) as total_discount,
+            COALESCE(SUM(i.subtotal), 0) as net_sales
         FROM invoices i
         WHERE i.invoice_date BETWEEN :date_from AND :date_to
         AND i.status != 'cancelled'
@@ -534,13 +537,16 @@ function getMonthlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $p
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['cash_sales'] += $row['cash_sales'];
-        $summary['credit_sales'] += $row['credit_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['total_discount'] += $row['total_discount'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['cash_sales'] += max(0, $row['cash_sales']);
+        $summary['credit_sales'] += max(0, $row['credit_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['total_discount'] += max(0, $row['total_discount']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
+        
+        if ($row['cash_sales'] > 0) $summary['cash_count'] += $row['transaction_count'];
+        if ($row['credit_sales'] > 0) $summary['credit_count'] += $row['transaction_count'];
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -557,9 +563,9 @@ function getMonthlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $p
     
     foreach ($data as $row) {
         $chart_data['categories'][] = DateTime::createFromFormat('!m', $row['sale_month'])->format('M') . ' ' . $row['sale_year'];
-        $chart_data['cash'][] = $row['cash_sales'];
-        $chart_data['credit'][] = $row['credit_sales'];
-        $chart_data['total'][] = $row['total_sales'];
+        $chart_data['cash'][] = max(0, $row['cash_sales']);
+        $chart_data['credit'][] = max(0, $row['credit_sales']);
+        $chart_data['total'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -571,12 +577,12 @@ function getYearlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pr
         SELECT 
             YEAR(i.invoice_date) as sale_year,
             COUNT(DISTINCT i.id) as transaction_count,
-            SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END) as cash_sales,
-            SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END) as credit_sales,
-            SUM(i.total_amount) as total_sales,
-            SUM(i.gst_total) as total_gst,
-            SUM(i.discount_amount) as total_discount,
-            SUM(i.subtotal) as net_sales
+            COALESCE(SUM(CASE WHEN i.payment_type = 'cash' THEN i.total_amount ELSE 0 END), 0) as cash_sales,
+            COALESCE(SUM(CASE WHEN i.payment_type IN ('credit', 'bank_transfer', 'cheque', 'online') THEN i.total_amount ELSE 0 END), 0) as credit_sales,
+            COALESCE(SUM(i.total_amount), 0) as total_sales,
+            COALESCE(SUM(i.gst_total), 0) as total_gst,
+            COALESCE(SUM(i.discount_amount), 0) as total_discount,
+            COALESCE(SUM(i.subtotal), 0) as net_sales
         FROM invoices i
         WHERE i.invoice_date BETWEEN :date_from AND :date_to
         AND i.status != 'cancelled'
@@ -618,13 +624,16 @@ function getYearlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pr
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['cash_sales'] += $row['cash_sales'];
-        $summary['credit_sales'] += $row['credit_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['total_discount'] += $row['total_discount'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['cash_sales'] += max(0, $row['cash_sales']);
+        $summary['credit_sales'] += max(0, $row['credit_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['total_discount'] += max(0, $row['total_discount']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
+        
+        if ($row['cash_sales'] > 0) $summary['cash_count'] += $row['transaction_count'];
+        if ($row['credit_sales'] > 0) $summary['credit_count'] += $row['transaction_count'];
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -641,9 +650,9 @@ function getYearlySalesReport($pdo, $date_from, $date_to, $customer_id = '', $pr
     
     foreach ($data as $row) {
         $chart_data['categories'][] = $row['sale_year'];
-        $chart_data['cash'][] = $row['cash_sales'];
-        $chart_data['credit'][] = $row['credit_sales'];
-        $chart_data['total'][] = $row['total_sales'];
+        $chart_data['cash'][] = max(0, $row['cash_sales']);
+        $chart_data['credit'][] = max(0, $row['credit_sales']);
+        $chart_data['total'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -658,11 +667,11 @@ function getProductSalesReport($pdo, $date_from, $date_to, $product_id = '', $ca
             c.name as category_name,
             p.unit,
             COUNT(DISTINCT ii.invoice_id) as transaction_count,
-            SUM(ii.quantity) as quantity_sold,
-            AVG(ii.unit_price) as avg_price,
-            SUM(ii.total_price) as total_sales,
-            SUM(ii.gst_amount) as total_gst,
-            SUM(ii.total_price) as net_sales
+            COALESCE(SUM(ii.quantity), 0) as quantity_sold,
+            COALESCE(AVG(ii.unit_price), 0) as avg_price,
+            COALESCE(SUM(ii.total_price), 0) as total_sales,
+            COALESCE(SUM(ii.gst_amount), 0) as total_gst,
+            COALESCE(SUM(ii.total_price), 0) as net_sales
         FROM invoice_items ii
         JOIN products p ON ii.product_id = p.id
         LEFT JOIN categories c ON p.category_id = c.id
@@ -709,11 +718,11 @@ function getProductSalesReport($pdo, $date_from, $date_to, $product_id = '', $ca
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_quantity'] += $row['quantity_sold'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_quantity'] += max(0, $row['quantity_sold']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -729,7 +738,7 @@ function getProductSalesReport($pdo, $date_from, $date_to, $product_id = '', $ca
     $top_products = array_slice($data, 0, 10);
     foreach ($top_products as $row) {
         $chart_data['products'][] = strlen($row['product_name']) > 20 ? substr($row['product_name'], 0, 20) . '...' : $row['product_name'];
-        $chart_data['sales'][] = $row['total_sales'];
+        $chart_data['sales'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -744,13 +753,13 @@ function getCustomerSalesReport($pdo, $date_from, $date_to, $customer_id = '', $
             c.customer_code,
             c.phone,
             COUNT(DISTINCT i.id) as transaction_count,
-            SUM(i.total_amount) as total_sales,
-            SUM(i.gst_total) as total_gst,
-            SUM(i.discount_amount) as total_discount,
-            SUM(i.subtotal) as net_sales,
-            AVG(i.total_amount) as avg_transaction,
-            MAX(i.total_amount) as max_transaction,
-            MIN(i.total_amount) as min_transaction
+            COALESCE(SUM(i.total_amount), 0) as total_sales,
+            COALESCE(SUM(i.gst_total), 0) as total_gst,
+            COALESCE(SUM(i.discount_amount), 0) as total_discount,
+            COALESCE(SUM(i.subtotal), 0) as net_sales,
+            COALESCE(AVG(i.total_amount), 0) as avg_transaction,
+            COALESCE(MAX(i.total_amount), 0) as max_transaction,
+            COALESCE(MIN(i.total_amount), 0) as min_transaction
         FROM invoices i
         JOIN customers c ON i.customer_id = c.id
         WHERE i.invoice_date BETWEEN :date_from AND :date_to
@@ -790,11 +799,11 @@ function getCustomerSalesReport($pdo, $date_from, $date_to, $customer_id = '', $
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['total_discount'] += $row['total_discount'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['total_discount'] += max(0, $row['total_discount']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -810,7 +819,7 @@ function getCustomerSalesReport($pdo, $date_from, $date_to, $customer_id = '', $
     $top_customers = array_slice($data, 0, 10);
     foreach ($top_customers as $row) {
         $chart_data['customers'][] = strlen($row['customer_name']) > 20 ? substr($row['customer_name'], 0, 20) . '...' : $row['customer_name'];
-        $chart_data['sales'][] = $row['total_sales'];
+        $chart_data['sales'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -824,10 +833,10 @@ function getCategorySalesReport($pdo, $date_from, $date_to, $category_id = '', $
             c.name as category_name,
             COUNT(DISTINCT p.id) as product_count,
             COUNT(DISTINCT ii.invoice_id) as transaction_count,
-            SUM(ii.quantity) as quantity_sold,
-            SUM(ii.total_price) as total_sales,
-            SUM(ii.gst_amount) as total_gst,
-            SUM(ii.total_price) as net_sales
+            COALESCE(SUM(ii.quantity), 0) as quantity_sold,
+            COALESCE(SUM(ii.total_price), 0) as total_sales,
+            COALESCE(SUM(ii.gst_amount), 0) as total_gst,
+            COALESCE(SUM(ii.total_price), 0) as net_sales
         FROM invoice_items ii
         JOIN products p ON ii.product_id = p.id
         LEFT JOIN categories c ON p.category_id = c.id
@@ -869,11 +878,11 @@ function getCategorySalesReport($pdo, $date_from, $date_to, $category_id = '', $
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'];
-        $summary['total_gst'] += $row['total_gst'];
-        $summary['net_sales'] += $row['net_sales'];
-        $summary['total_quantity'] += $row['quantity_sold'];
-        $summary['total_transactions'] += $row['transaction_count'];
+        $summary['total_sales'] += max(0, $row['total_sales']);
+        $summary['total_gst'] += max(0, $row['total_gst']);
+        $summary['net_sales'] += max(0, $row['net_sales']);
+        $summary['total_quantity'] += max(0, $row['quantity_sold']);
+        $summary['total_transactions'] += max(0, $row['transaction_count']);
     }
     
     if ($summary['total_transactions'] > 0) {
@@ -888,7 +897,7 @@ function getCategorySalesReport($pdo, $date_from, $date_to, $category_id = '', $
     
     foreach ($data as $row) {
         $chart_data['categories'][] = $row['category_name'] ?? 'Uncategorized';
-        $chart_data['sales'][] = $row['total_sales'];
+        $chart_data['sales'][] = max(0, $row['total_sales']);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => $chart_data];
@@ -999,13 +1008,13 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         foreach ($data as $row) {
             fputcsv($output, [
                 $row['sale_date'],
-                $row['transaction_count'],
-                number_format($row['cash_sales'], 2),
-                number_format($row['credit_sales'], 2),
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['total_discount'], 2),
-                number_format($row['net_sales'], 2)
+                max(0, $row['transaction_count']),
+                number_format(max(0, $row['cash_sales']), 2),
+                number_format(max(0, $row['credit_sales']), 2),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['total_discount']), 2),
+                number_format(max(0, $row['net_sales']), 2)
             ]);
         }
     } elseif ($report_type == 'monthly') {
@@ -1014,13 +1023,13 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             fputcsv($output, [
                 DateTime::createFromFormat('!m', $row['sale_month'])->format('F'),
                 $row['sale_year'],
-                $row['transaction_count'],
-                number_format($row['cash_sales'], 2),
-                number_format($row['credit_sales'], 2),
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['total_discount'], 2),
-                number_format($row['net_sales'], 2)
+                max(0, $row['transaction_count']),
+                number_format(max(0, $row['cash_sales']), 2),
+                number_format(max(0, $row['credit_sales']), 2),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['total_discount']), 2),
+                number_format(max(0, $row['net_sales']), 2)
             ]);
         }
     } elseif ($report_type == 'yearly') {
@@ -1028,13 +1037,13 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         foreach ($data as $row) {
             fputcsv($output, [
                 $row['sale_year'],
-                $row['transaction_count'],
-                number_format($row['cash_sales'], 2),
-                number_format($row['credit_sales'], 2),
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['total_discount'], 2),
-                number_format($row['net_sales'], 2)
+                max(0, $row['transaction_count']),
+                number_format(max(0, $row['cash_sales']), 2),
+                number_format(max(0, $row['credit_sales']), 2),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['total_discount']), 2),
+                number_format(max(0, $row['net_sales']), 2)
             ]);
         }
     } elseif ($report_type == 'product') {
@@ -1044,11 +1053,11 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['product_name'],
                 $row['category_name'] ?? 'N/A',
                 $row['unit'],
-                number_format($row['quantity_sold'], 2),
-                number_format($row['avg_price'], 2),
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['net_sales'], 2)
+                number_format(max(0, $row['quantity_sold']), 2),
+                number_format(max(0, $row['avg_price']), 2),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['net_sales']), 2)
             ]);
         }
     } elseif ($report_type == 'customer') {
@@ -1058,12 +1067,12 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_name'],
                 $row['customer_code'],
                 $row['phone'],
-                $row['transaction_count'],
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['total_discount'], 2),
-                number_format($row['net_sales'], 2),
-                number_format($row['avg_transaction'], 2)
+                max(0, $row['transaction_count']),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['total_discount']), 2),
+                number_format(max(0, $row['net_sales']), 2),
+                number_format(max(0, $row['avg_transaction']), 2)
             ]);
         }
     } elseif ($report_type == 'category') {
@@ -1071,12 +1080,12 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         foreach ($data as $row) {
             fputcsv($output, [
                 $row['category_name'] ?? 'Uncategorized',
-                $row['product_count'],
-                $row['transaction_count'],
-                number_format($row['quantity_sold'], 2),
-                number_format($row['total_sales'], 2),
-                number_format($row['total_gst'], 2),
-                number_format($row['net_sales'], 2)
+                max(0, $row['product_count']),
+                max(0, $row['transaction_count']),
+                number_format(max(0, $row['quantity_sold']), 2),
+                number_format(max(0, $row['total_sales']), 2),
+                number_format(max(0, $row['total_gst']), 2),
+                number_format(max(0, $row['net_sales']), 2)
             ]);
         }
     }
@@ -1088,6 +1097,92 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .filter-form-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .filter-form-container .form-group {
+            margin-bottom: 0;
+        }
+        
+        .filter-form-container label {
+            font-weight: 500;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        
+        .filter-form-container .form-control,
+        .filter-form-container .form-select {
+            font-size: 14px;
+            height: 38px;
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 28px;
+        }
+        
+        /* Increase status dropdown width */
+        .status-dropdown {
+            min-width: 180px;
+        }
+        
+        .status-dropdown select {
+            width: 100%;
+        }
+        
+        @media (max-width: 768px) {
+            .filter-form-container .form-group {
+                margin-bottom: 15px;
+            }
+            
+            .filter-buttons {
+                margin-top: 0;
+            }
+        }
+        
+        @media print {
+            .vertical-menu, .topbar, .footer, .btn, .modal, 
+            .page-title-right, .card-title .btn, .action-buttons,
+            form, .apex-charts {
+                display: none !important;
+            }
+            .main-content {
+                margin-left: 0 !important;
+            }
+            .card {
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .table {
+                font-size: 9pt;
+            }
+        }
+        
+        .table td {
+            vertical-align: middle;
+        }
+        
+        .btn-soft-primary {
+            transition: all 0.3s;
+        }
+        
+        .btn-soft-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
+        }
+    </style>
+</head>
 
 <body data-sidebar="dark">
 
@@ -1139,27 +1234,27 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-<?= $report_type == 'daily' ? 'primary' : 'outline-primary' ?>" id="btnDaily">
+                                    <a href="?report_type=daily" class="btn btn-<?= $report_type == 'daily' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-today"></i> Daily
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'monthly' ? 'primary' : 'outline-primary' ?>" id="btnMonthly">
+                                    </a>
+                                    <a href="?report_type=monthly" class="btn btn-<?= $report_type == 'monthly' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-month"></i> Monthly
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'yearly' ? 'primary' : 'outline-primary' ?>" id="btnYearly">
+                                    </a>
+                                    <a href="?report_type=yearly" class="btn btn-<?= $report_type == 'yearly' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-calendar-clock"></i> Yearly
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'product' ? 'primary' : 'outline-primary' ?>" id="btnProduct">
+                                    </a>
+                                    <a href="?report_type=product" class="btn btn-<?= $report_type == 'product' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-package-variant"></i> By Product
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'customer' ? 'primary' : 'outline-primary' ?>" id="btnCustomer">
+                                    </a>
+                                    <a href="?report_type=customer" class="btn btn-<?= $report_type == 'customer' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-account-group"></i> By Customer
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'category' ? 'primary' : 'outline-primary' ?>" id="btnCategory">
+                                    </a>
+                                    <a href="?report_type=category" class="btn btn-<?= $report_type == 'category' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-shape"></i> By Category
-                                    </button>
-                                    <button type="button" class="btn btn-success" id="btnExport">
+                                    </a>
+                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success">
                                         <i class="mdi mdi-export"></i> Export CSV
-                                    </button>
+                                    </a>
                                     <button type="button" class="btn btn-info" onclick="window.print()">
                                         <i class="mdi mdi-printer"></i> Print
                                     </button>
@@ -1169,99 +1264,98 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                     </div>
                 </div>
 
-                <!-- Filter Form -->
+                <!-- Filter Form - Properly Aligned -->
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
-                            <div class="card-body">
+                            <div class="card-body filter-form-container">
                                 <h4 class="card-title mb-4">Filter Report</h4>
-                                <form method="GET" action="sales-report.php" class="row" id="filterForm">
+                                <form method="GET" action="sales-report.php" id="filterForm">
                                     <input type="hidden" name="report_type" id="report_type" value="<?= htmlspecialchars($report_type) ?>">
                                     
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="date_from" class="form-label">From Date</label>
-                                            <input type="date" class="form-control" id="date_from" name="date_from" value="<?= htmlspecialchars($date_from) ?>">
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="date_from" class="form-label">From Date</label>
+                                                <input type="date" class="form-control" id="date_from" name="date_from" value="<?= htmlspecialchars($date_from) ?>">
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="date_to" class="form-label">To Date</label>
-                                            <input type="date" class="form-control" id="date_to" name="date_to" value="<?= htmlspecialchars($date_to) ?>">
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="date_to" class="form-label">To Date</label>
+                                                <input type="date" class="form-control" id="date_to" name="date_to" value="<?= htmlspecialchars($date_to) ?>">
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2" id="customer_filter" style="<?= ($report_type == 'product' || $report_type == 'category') ? 'display: block;' : 'display: none;' ?>">
-                                        <div class="mb-3">
-                                            <label for="customer_id" class="form-label">Customer</label>
-                                            <select class="form-control" id="customer_id" name="customer_id">
-                                                <option value="">All Customers</option>
-                                                <?php foreach ($customers as $cust): ?>
-                                                <option value="<?= $cust['id'] ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($cust['name']) ?>
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                        
+                                        <div class="col-md-2" id="customer_filter" style="<?= ($report_type == 'daily' || $report_type == 'monthly' || $report_type == 'yearly') ? 'display: block;' : 'display: none;' ?>">
+                                            <div class="form-group">
+                                                <label for="customer_id" class="form-label">Customer</label>
+                                                <select class="form-control" id="customer_id" name="customer_id">
+                                                    <option value="">All Customers</option>
+                                                    <?php foreach ($customers as $cust): ?>
+                                                    <option value="<?= $cust['id'] ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($cust['name']) ?>
+                                                    </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2" id="product_filter" style="<?= ($report_type == 'customer' || $report_type == 'category') ? 'display: block;' : 'display: none;' ?>">
-                                        <div class="mb-3">
-                                            <label for="product_id" class="form-label">Product</label>
-                                            <select class="form-control" id="product_id" name="product_id">
-                                                <option value="">All Products</option>
-                                                <?php foreach ($products as $prod): ?>
-                                                <option value="<?= $prod['id'] ?>" <?= $product_id == $prod['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($prod['name']) ?>
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                        
+                                        <div class="col-md-2" id="product_filter" style="<?= ($report_type == 'daily' || $report_type == 'monthly' || $report_type == 'yearly') ? 'display: block;' : 'display: none;' ?>">
+                                            <div class="form-group">
+                                                <label for="product_id" class="form-label">Product</label>
+                                                <select class="form-control" id="product_id" name="product_id">
+                                                    <option value="">All Products</option>
+                                                    <?php foreach ($products as $prod): ?>
+                                                    <option value="<?= $prod['id'] ?>" <?= $product_id == $prod['id'] ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($prod['name']) ?>
+                                                    </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2" id="category_filter" style="<?= ($report_type == 'product' || $report_type == 'customer') ? 'display: block;' : 'display: none;' ?>">
-                                        <div class="mb-3">
-                                            <label for="category_id" class="form-label">Category</label>
-                                            <select class="form-control" id="category_id" name="category_id">
-                                                <option value="">All Categories</option>
-                                                <?php foreach ($categories as $cat): ?>
-                                                <option value="<?= $cat['id'] ?>" <?= $category_id == $cat['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($cat['name']) ?>
-                                                </option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                        
+                                        <div class="col-md-2" id="category_filter" style="<?= ($report_type == 'daily' || $report_type == 'monthly' || $report_type == 'yearly') ? 'display: block;' : 'display: none;' ?>">
+                                            <div class="form-group">
+                                                <label for="category_id" class="form-label">Category</label>
+                                                <select class="form-control" id="category_id" name="category_id">
+                                                    <option value="">All Categories</option>
+                                                    <?php foreach ($categories as $cat): ?>
+                                                    <option value="<?= $cat['id'] ?>" <?= $category_id == $cat['id'] ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($cat['name']) ?>
+                                                    </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="status" class="form-label">Status</label>
-                                            <select class="form-control" id="status" name="status">
-                                                <option value="all" <?= $status == 'all' ? 'selected' : '' ?>>All</option>
-                                                <option value="paid" <?= $status == 'paid' ? 'selected' : '' ?>>Paid</option>
-                                                <option value="sent" <?= $status == 'sent' ? 'selected' : '' ?>>Pending</option>
-                                                <option value="overdue" <?= $status == 'overdue' ? 'selected' : '' ?>>Overdue</option>
-                                            </select>
+                                        
+                                        <div class="col-md-3 status-dropdown">
+                                            <div class="form-group">
+                                                <label for="status" class="form-label">Invoice Status</label>
+                                                <select class="form-control" id="status" name="status">
+                                                    <option value="all" <?= $status == 'all' ? 'selected' : '' ?>>All Invoices</option>
+                                                    <option value="paid" <?= $status == 'paid' ? 'selected' : '' ?>>Paid</option>
+                                                    <option value="sent" <?= $status == 'sent' ? 'selected' : '' ?>>Pending</option>
+                                                    <option value="overdue" <?= $status == 'overdue' ? 'selected' : '' ?>>Overdue</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label for="search" class="form-label">Search</label>
-                                            <input type="text" class="form-control" id="search" name="search" placeholder="Invoice #, Notes..." value="<?= htmlspecialchars($search) ?>">
+                                        
+                                        <div class="col-md-2">
+                                            <div class="form-group">
+                                                <label for="search" class="form-label">Search</label>
+                                                <input type="text" class="form-control" id="search" name="search" placeholder="Invoice #, Notes..." value="<?= htmlspecialchars($search) ?>">
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div class="col-md-2">
-                                        <div class="mb-3">
-                                            <label class="form-label">&nbsp;</label>
-                                            <div>
-                                                <button type="button" class="btn btn-primary me-2" id="applyFilterBtn">
+                                        
+                                        <div class="col-md-1">
+                                            <div class="filter-buttons">
+                                                <button type="submit" class="btn btn-primary w-100">
                                                     <i class="mdi mdi-filter"></i> Apply
                                                 </button>
-                                                <button type="button" class="btn btn-secondary" id="resetFilterBtn">
+                                                <a href="sales-report.php?report_type=<?= $report_type ?>" class="btn btn-secondary w-100">
                                                     <i class="mdi mdi-refresh"></i> Reset
-                                                </button>
+                                                </a>
                                             </div>
                                         </div>
                                     </div>
@@ -1271,19 +1365,11 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                     </div>
                 </div>
 
-                <!-- Loading Indicator -->
-                <div id="loadingIndicator" class="text-center py-4" style="display: none;">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2">Loading report data...</p>
-                </div>
-
                 <!-- Report Content Container -->
                 <div id="reportContent">
                     <!-- Summary Cards -->
                     <div class="row">
-                        <div class="col-md-3">
+                        <div class="col-xl-3 col-md-6">
                             <div class="card">
                                 <div class="card-body">
                                     <div class="d-flex align-items-center">
@@ -1296,14 +1382,14 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Sales</p>
-                                            <h4>₹<?= number_format($summary['total_sales'] ?? 0, 2) ?></h4>
-                                            <small class="text-muted"><?= $summary['total_transactions'] ?? 0 ?> transactions</small>
+                                            <h4>₹<?= number_format(max(0, $summary['total_sales'] ?? 0), 2) ?></h4>
+                                            <small class="text-muted"><?= number_format(max(0, $summary['total_transactions'] ?? 0)) ?> transactions</small>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-xl-3 col-md-6">
                             <div class="card">
                                 <div class="card-body">
                                     <div class="d-flex align-items-center">
@@ -1316,14 +1402,14 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Cash Sales</p>
-                                            <h4>₹<?= number_format($summary['cash_sales'] ?? 0, 2) ?></h4>
-                                            <small class="text-muted"><?= $summary['cash_count'] ?? 0 ?> transactions</small>
+                                            <h4>₹<?= number_format(max(0, $summary['cash_sales'] ?? 0), 2) ?></h4>
+                                            <small class="text-muted"><?= number_format(max(0, $summary['cash_count'] ?? 0)) ?> transactions</small>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-xl-3 col-md-6">
                             <div class="card">
                                 <div class="card-body">
                                     <div class="d-flex align-items-center">
@@ -1336,14 +1422,14 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Credit Sales</p>
-                                            <h4>₹<?= number_format($summary['credit_sales'] ?? 0, 2) ?></h4>
-                                            <small class="text-muted"><?= $summary['credit_count'] ?? 0 ?> transactions</small>
+                                            <h4>₹<?= number_format(max(0, $summary['credit_sales'] ?? 0), 2) ?></h4>
+                                            <small class="text-muted"><?= number_format(max(0, $summary['credit_count'] ?? 0)) ?> transactions</small>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-xl-3 col-md-6">
                             <div class="card">
                                 <div class="card-body">
                                     <div class="d-flex align-items-center">
@@ -1356,7 +1442,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Avg. Transaction</p>
-                                            <h4>₹<?= number_format($summary['avg_transaction'] ?? 0, 2) ?></h4>
+                                            <h4>₹<?= number_format(max(0, $summary['avg_transaction'] ?? 0), 2) ?></h4>
                                             <small class="text-muted">Per sale</small>
                                         </div>
                                     </div>
@@ -1376,7 +1462,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                             </div>
                         </div>
                     </div>
-                    <?php elseif ($report_type == 'product'): ?>
+                    <?php elseif ($report_type == 'product' && !empty($chart_data['products'])): ?>
                     <div class="row">
                         <div class="col-12">
                             <div class="card">
@@ -1387,7 +1473,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                             </div>
                         </div>
                     </div>
-                    <?php elseif ($report_type == 'customer'): ?>
+                    <?php elseif ($report_type == 'customer' && !empty($chart_data['customers'])): ?>
                     <div class="row">
                         <div class="col-12">
                             <div class="card">
@@ -1398,7 +1484,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                             </div>
                         </div>
                     </div>
-                    <?php elseif ($report_type == 'category'): ?>
+                    <?php elseif ($report_type == 'category' && !empty($chart_data['categories'])): ?>
                     <div class="row">
                         <div class="col-12">
                             <div class="card">
@@ -1420,38 +1506,38 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         <table class="table table-centered table-nowrap mb-0">
                                             <thead class="thead-light">
                                                 <?php if ($report_type == 'daily'): ?>
-                                                <tr>
+                                                 <tr>
                                                     <th>Date</th>
-                                                    <th>Transactions</th>
-                                                    <th class="text-end">Cash Sales</th>
-                                                    <th class="text-end">Credit Sales</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Discount</th>
-                                                    <th class="text-end">Net Sales</th>
+                                                    <th class="text-end">Transactions</th>
+                                                    <th class="text-end">Cash Sales (₹)</th>
+                                                    <th class="text-end">Credit Sales (₹)</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Discount (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
                                                 </tr>
                                                 <?php elseif ($report_type == 'monthly'): ?>
                                                 <tr>
                                                     <th>Month</th>
                                                     <th>Year</th>
-                                                    <th>Transactions</th>
-                                                    <th class="text-end">Cash Sales</th>
-                                                    <th class="text-end">Credit Sales</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Discount</th>
-                                                    <th class="text-end">Net Sales</th>
+                                                    <th class="text-end">Transactions</th>
+                                                    <th class="text-end">Cash Sales (₹)</th>
+                                                    <th class="text-end">Credit Sales (₹)</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Discount (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
                                                 </tr>
                                                 <?php elseif ($report_type == 'yearly'): ?>
                                                 <tr>
                                                     <th>Year</th>
-                                                    <th>Transactions</th>
-                                                    <th class="text-end">Cash Sales</th>
-                                                    <th class="text-end">Credit Sales</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Discount</th>
-                                                    <th class="text-end">Net Sales</th>
+                                                    <th class="text-end">Transactions</th>
+                                                    <th class="text-end">Cash Sales (₹)</th>
+                                                    <th class="text-end">Credit Sales (₹)</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Discount (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
                                                 </tr>
                                                 <?php elseif ($report_type == 'product'): ?>
                                                 <tr>
@@ -1459,10 +1545,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                     <th>Category</th>
                                                     <th>Unit</th>
                                                     <th class="text-end">Quantity Sold</th>
-                                                    <th class="text-end">Avg. Price</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Net Sales</th>
+                                                    <th class="text-end">Avg. Price (₹)</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
                                                 </tr>
                                                 <?php elseif ($report_type == 'customer'): ?>
                                                 <tr>
@@ -1470,11 +1556,11 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                     <th>Code</th>
                                                     <th>Phone</th>
                                                     <th class="text-end">Transactions</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Discount</th>
-                                                    <th class="text-end">Net Sales</th>
-                                                    <th class="text-end">Avg. per Transaction</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Discount (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
+                                                    <th class="text-end">Avg. per Transaction (₹)</th>
                                                 </tr>
                                                 <?php elseif ($report_type == 'category'): ?>
                                                 <tr>
@@ -1482,9 +1568,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                     <th class="text-end">Products</th>
                                                     <th class="text-end">Transactions</th>
                                                     <th class="text-end">Quantity Sold</th>
-                                                    <th class="text-end">Total Sales</th>
-                                                    <th class="text-end">GST</th>
-                                                    <th class="text-end">Net Sales</th>
+                                                    <th class="text-end">Total Sales (₹)</th>
+                                                    <th class="text-end">GST (₹)</th>
+                                                    <th class="text-end">Net Sales (₹)</th>
                                                 </tr>
                                                 <?php endif; ?>
                                             </thead>
@@ -1501,64 +1587,64 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                     <tr>
                                                         <?php if ($report_type == 'daily'): ?>
                                                         <td><?= date('d M Y', strtotime($row['sale_date'])) ?></td>
-                                                        <td><?= $row['transaction_count'] ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                                        <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                                        <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                                         
                                                         <?php elseif ($report_type == 'monthly'): ?>
                                                         <td><?= DateTime::createFromFormat('!m', $row['sale_month'])->format('F') ?></td>
                                                         <td><?= $row['sale_year'] ?></td>
-                                                        <td><?= $row['transaction_count'] ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                                        <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                                        <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                                         
                                                         <?php elseif ($report_type == 'yearly'): ?>
                                                         <td><?= $row['sale_year'] ?></td>
-                                                        <td><?= $row['transaction_count'] ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['cash_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['credit_sales'], 2) ?></td>
-                                                        <td class="text-end"><strong>₹<?= number_format($row['total_sales'], 2) ?></strong></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['cash_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['credit_sales']), 2) ?></td>
+                                                        <td class="text-end"><strong>₹<?= number_format(max(0, $row['total_sales']), 2) ?></strong></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                                         
                                                         <?php elseif ($report_type == 'product'): ?>
                                                         <td><strong><?= htmlspecialchars($row['product_name']) ?></strong></td>
                                                         <td><?= htmlspecialchars($row['category_name'] ?? 'N/A') ?></td>
                                                         <td><?= htmlspecialchars($row['unit']) ?></td>
-                                                        <td class="text-end"><?= number_format($row['quantity_sold'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['avg_price'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['quantity_sold']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['avg_price']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                                         
                                                         <?php elseif ($report_type == 'customer'): ?>
                                                         <td><strong><?= htmlspecialchars($row['customer_name']) ?></strong></td>
                                                         <td><?= htmlspecialchars($row['customer_code']) ?></td>
                                                         <td><?= htmlspecialchars($row['phone']) ?></td>
-                                                        <td class="text-end"><?= $row['transaction_count'] ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_discount'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['avg_transaction'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_discount']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['avg_transaction']), 2) ?></td>
                                                         
                                                         <?php elseif ($report_type == 'category'): ?>
                                                         <td><strong><?= htmlspecialchars($row['category_name'] ?? 'Uncategorized') ?></strong></td>
-                                                        <td class="text-end"><?= $row['product_count'] ?></td>
-                                                        <td class="text-end"><?= $row['transaction_count'] ?></td>
-                                                        <td class="text-end"><?= number_format($row['quantity_sold'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_gst'], 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['net_sales'], 2) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['product_count'])) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['transaction_count'])) ?></td>
+                                                        <td class="text-end"><?= number_format(max(0, $row['quantity_sold']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_sales']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['total_gst']), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(max(0, $row['net_sales']), 2) ?></td>
                                                         <?php endif; ?>
                                                     </tr>
                                                     <?php endforeach; ?>
@@ -1591,6 +1677,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <!-- Chart JS -->
 <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
 
@@ -1608,18 +1697,29 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
     var categoryChart = null;
 
     // Initialize charts on page load
-    <?php if ($report_type == 'daily' || $report_type == 'monthly' || $report_type == 'yearly'): ?>
+    <?php if ($report_type == 'daily' || $report_type == 'monthly' || $report_type == 'yearly' && !empty($chart_data['categories'])): ?>
     initSalesTrendChart(<?= json_encode($chart_data) ?>);
-    <?php elseif ($report_type == 'product'): ?>
+    <?php elseif ($report_type == 'product' && !empty($chart_data['products'])): ?>
     initProductChart(<?= json_encode($chart_data) ?>);
-    <?php elseif ($report_type == 'customer'): ?>
+    <?php elseif ($report_type == 'customer' && !empty($chart_data['customers'])): ?>
     initCustomerChart(<?= json_encode($chart_data) ?>);
-    <?php elseif ($report_type == 'category'): ?>
+    <?php elseif ($report_type == 'category' && !empty($chart_data['categories'])): ?>
     initCategoryChart(<?= json_encode($chart_data) ?>);
     <?php endif; ?>
 
     // Initialize sales trend chart
     function initSalesTrendChart(data) {
+        // Ensure all values are positive
+        if (data.cash) {
+            data.cash = data.cash.map(val => Math.max(0, val));
+        }
+        if (data.credit) {
+            data.credit = data.credit.map(val => Math.max(0, val));
+        }
+        if (data.total) {
+            data.total = data.total.map(val => Math.max(0, val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1664,7 +1764,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 },
                 labels: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(0);
+                        return '₹' + Math.max(0, val).toFixed(0);
                     }
                 }
             },
@@ -1673,7 +1773,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 intersect: false,
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.max(0, val).toFixed(2);
                     }
                 }
             },
@@ -1698,6 +1798,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
     // Initialize product chart
     function initProductChart(data) {
+        if (data.sales) {
+            data.sales = data.sales.map(val => Math.max(0, val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1735,7 +1839,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             tooltip: {
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.max(0, val).toFixed(2);
                     }
                 }
             }
@@ -1750,6 +1854,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
     // Initialize customer chart
     function initCustomerChart(data) {
+        if (data.sales) {
+            data.sales = data.sales.map(val => Math.max(0, val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1787,7 +1895,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             tooltip: {
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.max(0, val).toFixed(2);
                     }
                 }
             }
@@ -1802,6 +1910,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
     // Initialize category chart
     function initCategoryChart(data) {
+        if (data.sales) {
+            data.sales = data.sales.map(val => Math.max(0, val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1816,7 +1928,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             tooltip: {
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.max(0, val).toFixed(2);
                     }
                 }
             }
@@ -1827,167 +1939,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         }
         categoryChart = new ApexCharts(document.querySelector("#category-chart"), options);
         categoryChart.render();
-    }
-
-    // Report type buttons
-    document.getElementById('btnDaily').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('daily');
-    });
-
-    document.getElementById('btnMonthly').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('monthly');
-    });
-
-    document.getElementById('btnYearly').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('yearly');
-    });
-
-    document.getElementById('btnProduct').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('product');
-    });
-
-    document.getElementById('btnCustomer').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('customer');
-    });
-
-    document.getElementById('btnCategory').addEventListener('click', function(e) {
-        e.preventDefault();
-        updateReportType('category');
-    });
-
-    // Update report type and load data
-    function updateReportType(type) {
-        document.getElementById('report_type').value = type;
-        
-        // Update button styles
-        const buttons = ['btnDaily', 'btnMonthly', 'btnYearly', 'btnProduct', 'btnCustomer', 'btnCategory'];
-        buttons.forEach(btnId => {
-            const btn = document.getElementById(btnId);
-            if (btn) {
-                btn.className = btnId === 'btn' + type.charAt(0).toUpperCase() + type.slice(1) ? 'btn btn-primary' : 'btn btn-outline-primary';
-            }
-        });
-        
-        // Show/hide filter containers based on report type
-        document.getElementById('customer_filter').style.display = (type === 'product' || type === 'category') ? 'block' : 'none';
-        document.getElementById('product_filter').style.display = (type === 'customer' || type === 'category') ? 'block' : 'none';
-        document.getElementById('category_filter').style.display = (type === 'product' || type === 'customer') ? 'block' : 'none';
-        
-        // Clear product/customer/category selections when switching report types
-        if (type === 'daily' || type === 'monthly' || type === 'yearly') {
-            document.getElementById('customer_id').value = '';
-            document.getElementById('product_id').value = '';
-            document.getElementById('category_id').value = '';
-        }
-        
-        // Load report data
-        loadReportData();
-    }
-
-    // Apply filter button
-    document.getElementById('applyFilterBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        loadReportData();
-    });
-
-    // Reset filter button
-    document.getElementById('resetFilterBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Reset form fields
-        document.getElementById('date_from').value = '<?= date('Y-m-01') ?>';
-        document.getElementById('date_to').value = '<?= date('Y-m-d') ?>';
-        document.getElementById('customer_id').value = '';
-        document.getElementById('product_id').value = '';
-        document.getElementById('category_id').value = '';
-        document.getElementById('status').value = 'all';
-        document.getElementById('search').value = '';
-        
-        // Load report data
-        loadReportData();
-    });
-
-    // Export button
-    document.getElementById('btnExport').addEventListener('click', function(e) {
-        e.preventDefault();
-        
-        // Build export URL with current filters
-        const params = new URLSearchParams();
-        params.append('export', 'csv');
-        params.append('report_type', document.getElementById('report_type').value);
-        params.append('date_from', document.getElementById('date_from').value);
-        params.append('date_to', document.getElementById('date_to').value);
-        params.append('customer_id', document.getElementById('customer_id').value);
-        params.append('product_id', document.getElementById('product_id').value);
-        params.append('category_id', document.getElementById('category_id').value);
-        params.append('status', document.getElementById('status').value);
-        params.append('search', document.getElementById('search').value);
-        
-        window.location.href = 'sales-report.php?' + params.toString();
-    });
-
-    // Load report data via AJAX
-    function loadReportData() {
-        const reportType = document.getElementById('report_type').value;
-        const dateFrom = document.getElementById('date_from').value;
-        const dateTo = document.getElementById('date_to').value;
-        const customerId = document.getElementById('customer_id').value;
-        const productId = document.getElementById('product_id').value;
-        const categoryId = document.getElementById('category_id').value;
-        const status = document.getElementById('status').value;
-        const search = document.getElementById('search').value;
-        
-        // Show loading indicator
-        document.getElementById('loadingIndicator').style.display = 'block';
-        document.getElementById('reportContent').style.opacity = '0.5';
-        
-        // Build URL with parameters
-        const url = new URL(window.location.href);
-        url.searchParams.set('ajax', 'load_report');
-        url.searchParams.set('report_type', reportType);
-        url.searchParams.set('date_from', dateFrom);
-        url.searchParams.set('date_to', dateTo);
-        url.searchParams.set('customer_id', customerId);
-        url.searchParams.set('product_id', productId);
-        url.searchParams.set('category_id', categoryId);
-        url.searchParams.set('status', status);
-        url.searchParams.set('search', search);
-        
-        fetch(url.toString())
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Update report content
-                    document.getElementById('reportContent').innerHTML = data.html;
-                    
-                    // Reinitialize charts based on report type
-                    if (data.report_type === 'daily' || data.report_type === 'monthly' || data.report_type === 'yearly') {
-                        initSalesTrendChart(data.chart_data);
-                    } else if (data.report_type === 'product') {
-                        initProductChart(data.chart_data);
-                    } else if (data.report_type === 'customer') {
-                        initCustomerChart(data.chart_data);
-                    } else if (data.report_type === 'category') {
-                        initCategoryChart(data.chart_data);
-                    }
-                } else {
-                    alert('Error loading report: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while loading the report');
-            })
-            .finally(() => {
-                // Hide loading indicator
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('reportContent').style.opacity = '1';
-            });
     }
 
     // Auto-hide alerts after 5 seconds
@@ -2001,68 +1952,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
         });
     }, 100);
 </script>
-
-<style>
-@media print {
-    .vertical-menu, .topbar, .footer, .btn, .modal, 
-    .page-title-right, .card-title .btn, .action-buttons,
-    form, .apex-charts {
-        display: none !important;
-    }
-    .main-content {
-        margin-left: 0 !important;
-    }
-    .card {
-        border: none !important;
-        box-shadow: none !important;
-    }
-    .table {
-        font-size: 9pt;
-    }
-    .badge {
-        border: 1px solid #000;
-        color: #000 !important;
-        background: transparent !important;
-    }
-}
-
-.table td {
-    vertical-align: middle;
-}
-
-/* Button styles */
-.btn-soft-primary {
-    transition: all 0.3s;
-}
-
-.btn-soft-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
-}
-
-/* Loading indicator */
-#loadingIndicator {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 9999;
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .table {
-        font-size: 8pt;
-    }
-    .table td, .table th {
-        padding: 0.5rem;
-    }
-}
-</style>
 
 </body>
 </html>

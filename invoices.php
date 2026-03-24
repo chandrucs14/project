@@ -54,14 +54,14 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
                 $updatePaid->execute([$invoice_id]);
                 
                 // Update customer outstanding balance
-                $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?");
-                $updateCustStmt->execute([$invoice['total_amount'] - $invoice['paid_amount'], $invoice['customer_id']]);
+                $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = ABS(outstanding_balance - ?) WHERE id = ?");
+                $updateCustStmt->execute([abs($invoice['total_amount'] - $invoice['paid_amount']), $invoice['customer_id']]);
             }
             
             // If status is cancelled, revert any paid amount
             if ($action === 'cancelled' && $invoice['paid_amount'] > 0) {
-                $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?");
-                $updateCustStmt->execute([$invoice['paid_amount'], $invoice['customer_id']]);
+                $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = ABS(outstanding_balance - ?) WHERE id = ?");
+                $updateCustStmt->execute([abs($invoice['paid_amount']), $invoice['customer_id']]);
             }
             
             // Get customer name for logging
@@ -132,8 +132,8 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
         
         // Update customer outstanding balance if payment was made
         if ($invoice['paid_amount'] > 0) {
-            $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?");
-            $updateCustStmt->execute([$invoice['paid_amount'], $invoice['customer_id']]);
+            $updateCustStmt = $pdo->prepare("UPDATE customers SET outstanding_balance = ABS(outstanding_balance - ?) WHERE id = ?");
+            $updateCustStmt->execute([abs($invoice['paid_amount']), $invoice['customer_id']]);
         }
         
         // Delete invoice vehicles first
@@ -260,7 +260,7 @@ $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $invoices = $stmt->fetchAll();
 
-// Get statistics
+// Get statistics - using ABS to ensure all values are positive
 $statsQuery = "
     SELECT 
         COUNT(*) as total_invoices,
@@ -270,13 +270,16 @@ $statsQuery = "
         SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid_invoices,
         SUM(CASE WHEN status = 'overdue' THEN 1 ELSE 0 END) as overdue_invoices,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_invoices,
-        COALESCE(SUM(total_amount), 0) as total_amount,
-        COALESCE(SUM(paid_amount), 0) as total_paid,
-        COALESCE(SUM(outstanding_amount), 0) as total_outstanding
+        COALESCE(ABS(SUM(total_amount)), 0) as total_amount,
+        COALESCE(ABS(SUM(paid_amount)), 0) as total_paid,
+        COALESCE(ABS(SUM(outstanding_amount)), 0) as total_outstanding
     FROM invoices
 ";
 $statsStmt = $pdo->query($statsQuery);
 $stats = $statsStmt->fetch();
+
+// Apply absolute values to all statistics
+$stats = array_map('abs', $stats);
 
 // Get all customers for dropdown
 $custStmt = $pdo->query("SELECT id, name, customer_code FROM customers WHERE is_active = 1 ORDER BY name");
@@ -288,15 +291,34 @@ if ($customer_id > 0) {
     $selCustStmt = $pdo->prepare("SELECT name, customer_code, phone, email, city FROM customers WHERE id = ?");
     $selCustStmt->execute([$customer_id]);
     $selectedCustomer = $selCustStmt->fetch();
+    
+    // Apply absolute values to customer data
+    if ($selectedCustomer) {
+        foreach ($selectedCustomer as $key => $value) {
+            if (is_numeric($value)) {
+                $selectedCustomer[$key] = abs($value);
+            }
+        }
+    }
 }
 
 // Check for overdue invoices
 $overdueStmt = $pdo->query("
-    SELECT COUNT(*) as count, COALESCE(SUM(outstanding_amount), 0) as amount 
+    SELECT COUNT(*) as count, COALESCE(ABS(SUM(outstanding_amount)), 0) as amount 
     FROM invoices 
     WHERE status IN ('sent', 'partially_paid') AND due_date < CURDATE()
 ");
 $overdue = $overdueStmt->fetch();
+$overdue = array_map('abs', $overdue);
+
+// Apply absolute values to all invoices
+foreach ($invoices as &$invoice) {
+    foreach ($invoice as $key => $value) {
+        if (is_numeric($value)) {
+            $invoice[$key] = abs($value);
+        }
+    }
+}
 
 // Check for session messages
 if (isset($_SESSION['success_message'])) {
@@ -313,6 +335,13 @@ if (isset($_SESSION['error_message'])) {
 <html lang="en">
 
 <?php include('includes/head.php'); ?>
+
+<head>
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
 
 <body data-sidebar="dark">
 
@@ -376,12 +405,12 @@ if (isset($_SESSION['error_message'])) {
                 <?php endif; ?>
 
                 <!-- Overdue Alert -->
-                <?php if ($overdue['count'] > 0): ?>
+                <?php if (abs($overdue['count']) > 0): ?>
                 <div class="row">
                     <div class="col-12">
                         <div class="alert alert-warning alert-dismissible fade show" role="alert">
                             <i class="mdi mdi-alert-outline me-2"></i>
-                            <strong><?= $overdue['count'] ?> invoice(s)</strong> are overdue with total outstanding of <strong>₹<?= number_format($overdue['amount'], 2) ?></strong>.
+                            <strong><?= abs($overdue['count']) ?> invoice(s)</strong> are overdue with total outstanding of <strong>₹<?= number_format(abs($overdue['amount']), 2) ?></strong>.
                             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                         </div>
                     </div>
@@ -393,7 +422,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-info mt-2"><?= number_format($stats['total_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-info mt-2"><?= number_format(abs($stats['total_invoices'] ?? 0)) ?></h3>
                                 Total Invoices
                             </div>
                         </div>
@@ -401,7 +430,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-warning mt-2"><?= number_format($stats['draft_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-warning mt-2"><?= number_format(abs($stats['draft_invoices'] ?? 0)) ?></h3>
                                 Draft
                             </div>
                         </div>
@@ -409,7 +438,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-success mt-2"><?= number_format($stats['paid_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-success mt-2"><?= number_format(abs($stats['paid_invoices'] ?? 0)) ?></h3>
                                 Paid
                             </div>
                         </div>
@@ -417,7 +446,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-3">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-danger mt-2">₹<?= number_format($stats['total_outstanding'] ?? 0, 2) ?></h3>
+                                <h3 class="text-primary mt-2">₹<?= number_format(abs($stats['total_outstanding'] ?? 0), 2) ?></h3>
                                 Outstanding
                             </div>
                         </div>
@@ -429,7 +458,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-4">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-primary mt-2"><?= number_format($stats['sent_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-primary mt-2"><?= number_format(abs($stats['sent_invoices'] ?? 0)) ?></h3>
                                 Sent
                             </div>
                         </div>
@@ -437,7 +466,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-4">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-secondary mt-2"><?= number_format($stats['partially_paid_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-secondary mt-2"><?= number_format(abs($stats['partially_paid_invoices'] ?? 0)) ?></h3>
                                 Partially Paid
                             </div>
                         </div>
@@ -445,7 +474,7 @@ if (isset($_SESSION['error_message'])) {
                     <div class="col-md-4">
                         <div class="card text-center">
                             <div class="mb-2 card-body text-muted">
-                                <h3 class="text-danger mt-2"><?= number_format($stats['overdue_invoices'] ?? 0) ?></h3>
+                                <h3 class="text-info mt-2"><?= number_format(abs($stats['overdue_invoices'] ?? 0)) ?></h3>
                                 Overdue
                             </div>
                         </div>
@@ -468,7 +497,7 @@ if (isset($_SESSION['error_message'])) {
                                                         <select name="customer_id" class="form-control">
                                                             <option value="0">All Customers</option>
                                                             <?php foreach ($customers as $cust): ?>
-                                                                <option value="<?= $cust['id'] ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
+                                                                <option value="<?= abs($cust['id']) ?>" <?= $customer_id == $cust['id'] ? 'selected' : '' ?>>
                                                                     <?= htmlspecialchars($cust['name']) ?> (<?= htmlspecialchars($cust['customer_code']) ?>)
                                                                 </option>
                                                             <?php endforeach; ?>
@@ -627,7 +656,7 @@ if (isset($_SESSION['error_message'])) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td>
-                                                            <a href="view-customer.php?id=<?= $invoice['customer_id'] ?>" class="text-primary">
+                                                            <a href="view-customer.php?id=<?= abs($invoice['customer_id']) ?>" class="text-primary">
                                                                 <?= htmlspecialchars($invoice['customer_name']) ?>
                                                             </a>
                                                             <br>
@@ -641,19 +670,17 @@ if (isset($_SESSION['error_message'])) {
                                                                 $due_date = strtotime($invoice['due_date']);
                                                                 $today = strtotime(date('Y-m-d'));
                                                                 if ($due_date < $today) {
-                                                                    echo '<br><small class="text-danger">Overdue</small>';
+                                                                    echo '<br><small class="text-info">Overdue</small>';
                                                                 }
                                                             }
                                                             ?>
                                                         </td>
                                                         <td>
-                                                            <span class="badge bg-soft-info text-info"><?= $invoice['item_count'] ?> items</span>
+                                                            <span class="badge bg-soft-info text-info"><?= abs($invoice['item_count']) ?> items</span>
                                                         </td>
-                                                        <td>₹<?= number_format($invoice['total_amount'], 2) ?></td>
-                                                        <td class="text-success">₹<?= number_format($invoice['paid_amount'], 2) ?></td>
-                                                        <td class="<?= $invoice['outstanding_amount'] > 0 ? 'text-danger' : 'text-success' ?>">
-                                                            ₹<?= number_format($invoice['outstanding_amount'], 2) ?>
-                                                        </td>
+                                                        <td>₹<?= number_format(abs($invoice['total_amount']), 2) ?></td>
+                                                        <td class="text-success">₹<?= number_format(abs($invoice['paid_amount']), 2) ?></td>
+                                                        <td class="text-primary">₹<?= number_format(abs($invoice['outstanding_amount']), 2) ?></td>
                                                         <td>
                                                             <?php
                                                             $paymentTypeClass = '';
@@ -703,7 +730,7 @@ if (isset($_SESSION['error_message'])) {
                                                                     $statusIcon = 'check-circle';
                                                                     break;
                                                                 case 'overdue':
-                                                                    $statusClass = 'danger';
+                                                                    $statusClass = 'info';
                                                                     $statusIcon = 'alert-circle';
                                                                     break;
                                                                 case 'cancelled':
@@ -719,19 +746,19 @@ if (isset($_SESSION['error_message'])) {
                                                         </td>
                                                         <td>
                                                             <div class="btn-group" role="group">
-                                                                <a href="view-invoice.php?id=<?= $invoice['id'] ?>" 
+                                                                <a href="view-invoice.php?id=<?= abs($invoice['id']) ?>" 
                                                                    class="btn btn-sm btn-soft-primary" 
                                                                    data-bs-toggle="tooltip" 
                                                                    title="View Invoice">
                                                                     <i class="mdi mdi-eye"></i>
                                                                 </a>
-                                                                <a href="edit-invoice.php?id=<?= $invoice['id'] ?>" 
+                                                                <a href="edit-invoice.php?id=<?= abs($invoice['id']) ?>" 
                                                                    class="btn btn-sm btn-soft-success" 
                                                                    data-bs-toggle="tooltip" 
                                                                    title="Edit">
                                                                     <i class="mdi mdi-pencil"></i>
                                                                 </a>
-                                                                <a href="print-invoice.php?id=<?= $invoice['id'] ?>" 
+                                                                <a href="print-invoice.php?id=<?= abs($invoice['id']) ?>" 
                                                                    class="btn btn-sm btn-soft-info" 
                                                                    data-bs-toggle="tooltip" 
                                                                    title="Print"
@@ -748,29 +775,29 @@ if (isset($_SESSION['error_message'])) {
                                                                 </button>
                                                                 <ul class="dropdown-menu">
                                                                     <li><a class="dropdown-item <?= $invoice['status'] == 'draft' ? 'disabled' : '' ?>" 
-                                                                           href="?action=draft&id=<?= $invoice['id'] ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= $page ?>">
+                                                                           href="?action=draft&id=<?= abs($invoice['id']) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= abs($page) ?>">
                                                                            <i class="mdi mdi-file-document-outline text-secondary me-2"></i> Draft</a>
                                                                     </li>
                                                                     <li><a class="dropdown-item <?= $invoice['status'] == 'sent' ? 'disabled' : '' ?>" 
-                                                                           href="?action=sent&id=<?= $invoice['id'] ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= $page ?>">
+                                                                           href="?action=sent&id=<?= abs($invoice['id']) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= abs($page) ?>">
                                                                            <i class="mdi mdi-send text-primary me-2"></i> Sent</a>
                                                                     </li>
                                                                     <li><a class="dropdown-item <?= $invoice['status'] == 'partially_paid' ? 'disabled' : '' ?>" 
-                                                                           href="?action=partially_paid&id=<?= $invoice['id'] ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= $page ?>">
+                                                                           href="?action=partially_paid&id=<?= abs($invoice['id']) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= abs($page) ?>">
                                                                            <i class="mdi mdi-clock-outline text-warning me-2"></i> Partially Paid</a>
                                                                     </li>
                                                                     <li><a class="dropdown-item <?= $invoice['status'] == 'paid' ? 'disabled' : '' ?>" 
-                                                                           href="?action=paid&id=<?= $invoice['id'] ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= $page ?>">
+                                                                           href="?action=paid&id=<?= abs($invoice['id']) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= abs($page) ?>">
                                                                            <i class="mdi mdi-check-circle text-success me-2"></i> Paid</a>
                                                                     </li>
                                                                     <li><hr class="dropdown-divider"></li>
-                                                                    <li><a class="dropdown-item <?= $invoice['status'] == 'cancelled' ? 'disabled' : '' ?> text-danger" 
-                                                                           href="?action=cancelled&id=<?= $invoice['id'] ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= $page ?>">
-                                                                           <i class="mdi mdi-close-circle text-danger me-2"></i> Cancel Invoice</a>
+                                                                    <li><a class="dropdown-item <?= $invoice['status'] == 'cancelled' ? 'disabled' : '' ?>" 
+                                                                           href="?action=cancelled&id=<?= abs($invoice['id']) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>&page=<?= abs($page) ?>">
+                                                                           <i class="mdi mdi-close-circle text-secondary me-2"></i> Cancel Invoice</a>
                                                                     </li>
                                                                 </ul>
                                                                 <a href="javascript:void(0);" 
-                                                                   onclick="confirmDelete(<?= $invoice['id'] ?>, '<?= htmlspecialchars(addslashes($invoice['invoice_number'])) ?>', '<?= htmlspecialchars(addslashes($search)) ?>', '<?= $customer_id ?>', '<?= $status ?>', '<?= $payment_type ?>', '<?= $from_date ?>', '<?= $to_date ?>', <?= $page ?>)"
+                                                                   onclick="confirmDelete(<?= abs($invoice['id']) ?>, '<?= htmlspecialchars(addslashes($invoice['invoice_number'])) ?>', '<?= htmlspecialchars(addslashes($search)) ?>', '<?= abs($customer_id) ?>', '<?= $status ?>', '<?= $payment_type ?>', '<?= $from_date ?>', '<?= $to_date ?>', <?= abs($page) ?>)"
                                                                    class="btn btn-sm btn-soft-danger"
                                                                    data-bs-toggle="tooltip" 
                                                                    title="Delete">
@@ -790,29 +817,29 @@ if (isset($_SESSION['error_message'])) {
                                         <div class="row mt-4">
                                             <div class="col-sm-6">
                                                 <div class="text-muted">
-                                                    Showing <?= $offset + 1 ?> to <?= min($offset + $limit, $totalRecords) ?> of <?= $totalRecords ?> entries
+                                                    Showing <?= abs($offset + 1) ?> to <?= abs(min($offset + $limit, $totalRecords)) ?> of <?= abs($totalRecords) ?> entries
                                                 </div>
                                             </div>
                                             <div class="col-sm-6">
                                                 <ul class="pagination justify-content-end">
                                                     <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page - 1 ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
+                                                        <a class="page-link" href="?page=<?= abs($page - 1) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
                                                             <i class="mdi mdi-chevron-left"></i>
                                                         </a>
                                                     </li>
                                                     
                                                     <?php 
-                                                    $startPage = max(1, $page - 2);
-                                                    $endPage = min($totalPages, $page + 2);
+                                                    $startPage = max(1, abs($page - 2));
+                                                    $endPage = min($totalPages, abs($page + 2));
                                                     for ($i = $startPage; $i <= $endPage; $i++): 
                                                     ?>
                                                         <li class="page-item <?= $i === $page ? 'active' : '' ?>">
-                                                            <a class="page-link" href="?page=<?= $i ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>"><?= $i ?></a>
+                                                            <a class="page-link" href="?page=<?= abs($i) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>"><?= abs($i) ?></a>
                                                         </li>
                                                     <?php endfor; ?>
                                                     
                                                     <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
-                                                        <a class="page-link" href="?page=<?= $page + 1 ?>&customer_id=<?= $customer_id ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
+                                                        <a class="page-link" href="?page=<?= abs($page + 1) ?>&customer_id=<?= abs($customer_id) ?>&search=<?= urlencode($search) ?>&status=<?= $status ?>&payment_type=<?= $payment_type ?>&from_date=<?= $from_date ?>&to_date=<?= $to_date ?>">
                                                             <i class="mdi mdi-chevron-right"></i>
                                                         </a>
                                                     </li>
@@ -836,15 +863,15 @@ if (isset($_SESSION['error_message'])) {
                                 <div class="mt-3">
                                     <div class="d-flex justify-content-between mb-2">
                                         <span>Total Invoice Value:</span>
-                                        <strong>₹<?= number_format($stats['total_amount'] ?? 0, 2) ?></strong>
+                                        <strong>₹<?= number_format(abs($stats['total_amount'] ?? 0), 2) ?></strong>
                                     </div>
                                     <div class="d-flex justify-content-between mb-2">
                                         <span>Total Paid Amount:</span>
-                                        <strong class="text-success">₹<?= number_format($stats['total_paid'] ?? 0, 2) ?></strong>
+                                        <strong class="text-success">₹<?= number_format(abs($stats['total_paid'] ?? 0), 2) ?></strong>
                                     </div>
                                     <div class="d-flex justify-content-between mb-2">
                                         <span>Total Outstanding:</span>
-                                        <strong class="text-danger">₹<?= number_format($stats['total_outstanding'] ?? 0, 2) ?></strong>
+                                        <strong class="text-primary">₹<?= number_format(abs($stats['total_outstanding'] ?? 0), 2) ?></strong>
                                     </div>
                                 </div>
                             </div>
@@ -857,37 +884,37 @@ if (isset($_SESSION['error_message'])) {
                                 <div class="row mt-3">
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-secondary"><?= number_format($stats['draft_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-secondary"><?= number_format(abs($stats['draft_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Draft</p>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-primary"><?= number_format($stats['sent_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-primary"><?= number_format(abs($stats['sent_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Sent</p>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-warning"><?= number_format($stats['partially_paid_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-warning"><?= number_format(abs($stats['partially_paid_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Partially Paid</p>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-success"><?= number_format($stats['paid_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-success"><?= number_format(abs($stats['paid_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Paid</p>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-danger"><?= number_format($stats['overdue_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-info"><?= number_format(abs($stats['overdue_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Overdue</p>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="text-center">
-                                            <h4 class="text-secondary"><?= number_format($stats['cancelled_invoices'] ?? 0) ?></h4>
+                                            <h4 class="text-secondary"><?= number_format(abs($stats['cancelled_invoices'] ?? 0)) ?></h4>
                                             <p class="mb-0">Cancelled</p>
                                         </div>
                                     </div>
@@ -917,9 +944,8 @@ if (isset($_SESSION['error_message'])) {
 <!-- JAVASCRIPT -->
 <?php include('includes/scripts.php'); ?>
 
-<!-- SweetAlert2 CSS and JS -->
-<link rel="stylesheet" href="assets/libs/sweetalert2/sweetalert2.min.css">
-<script src="assets/libs/sweetalert2/sweetalert2.min.js"></script>
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
     // Initialize tooltips
@@ -985,7 +1011,7 @@ if (isset($_SESSION['error_message'])) {
         Swal.fire({
             title: 'Delete Invoice?',
             html: `Are you sure you want to delete invoice <strong>#${invoiceNumber}</strong>?<br><br>
-                   <span class="text-danger">This action cannot be undone!</span>`,
+                   <span class="text-primary">This action cannot be undone!</span>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#f46a6a',
@@ -1008,7 +1034,7 @@ if (isset($_SESSION['error_message'])) {
                     }
                 });
                 
-                window.location.href = `invoices.php?delete=1&id=${id}&customer_id=${customerId}&search=${encodeURIComponent(search)}&status=${status}&payment_type=${paymentType}&from_date=${fromDate}&to_date=${toDate}&page=${page}`;
+                window.location.href = `invoices.php?delete=1&id=${Math.abs(id)}&customer_id=${Math.abs(customerId)}&search=${encodeURIComponent(search)}&status=${status}&payment_type=${paymentType}&from_date=${fromDate}&to_date=${toDate}&page=${Math.abs(page)}`;
             }
         });
     }
@@ -1048,7 +1074,7 @@ if (isset($_SESSION['error_message'])) {
             cancelButtonText: 'Cancel'
         }).then((result) => {
             if (result.isConfirmed) {
-                window.location.href = `invoices.php?action=${action}&id=${id}&customer_id=${customerId}&search=${encodeURIComponent(search)}&status=${status}&payment_type=${paymentType}&from_date=${fromDate}&to_date=${toDate}&page=${page}`;
+                window.location.href = `invoices.php?action=${action}&id=${Math.abs(id)}&customer_id=${Math.abs(customerId)}&search=${encodeURIComponent(search)}&status=${status}&payment_type=${paymentType}&from_date=${fromDate}&to_date=${toDate}&page=${Math.abs(page)}`;
             }
         });
     }
@@ -1077,6 +1103,76 @@ if (isset($_SESSION['error_message'])) {
         }
     });
 </script>
+
+<style>
+@media print {
+    .vertical-menu, .topbar, .footer, .btn, .modal, 
+    .page-title-right, .card-title .btn, .action-buttons,
+    form, .apex-charts {
+        display: none !important;
+    }
+    .main-content {
+        margin-left: 0 !important;
+    }
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    .table {
+        font-size: 9pt;
+    }
+    .badge {
+        border: 1px solid #000;
+        color: #000 !important;
+        background: transparent !important;
+    }
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+/* Button styles */
+.btn-soft-primary, .btn-soft-success, .btn-soft-info, .btn-soft-warning, .btn-soft-danger {
+    transition: all 0.3s;
+}
+
+.btn-soft-primary:hover, .btn-soft-success:hover, .btn-soft-info:hover, .btn-soft-warning:hover, .btn-soft-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(85, 110, 230, 0.3);
+}
+
+/* Remove minus signs - override danger colors */
+.text-danger {
+    color: #17a2b8 !important; /* Changed to info color */
+}
+
+/* Ensure all amounts are displayed without minus */
+.text-end {
+    font-family: 'Roboto Mono', monospace;
+}
+
+/* Status badges */
+.badge {
+    font-weight: 500;
+    padding: 0.5rem 0.75rem;
+}
+
+/* Table hover effect */
+.table-hover tbody tr:hover {
+    background-color: rgba(85, 110, 230, 0.05);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .table {
+        font-size: 8pt;
+    }
+    .table td, .table th {
+        padding: 0.5rem;
+    }
+}
+</style>
 
 </body>
 </html>

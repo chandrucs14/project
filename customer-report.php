@@ -184,6 +184,27 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                 break;
         }
         
+        // Apply absolute values to all numbers to remove minus signs
+        $summary = array_map('abs', $summary);
+        foreach ($report_data as &$row) {
+            foreach ($row as $key => $value) {
+                if (is_numeric($value)) {
+                    $row[$key] = abs($value);
+                }
+            }
+        }
+        foreach ($chart_data as $key => $value) {
+            if (is_array($value)) {
+                foreach ($value as &$val) {
+                    if (is_numeric($val)) {
+                        $val = abs($val);
+                    }
+                }
+            } elseif (is_numeric($value)) {
+                $chart_data[$key] = abs($value);
+            }
+        }
+        
         // Generate HTML for summary cards
         ob_start();
         ?>
@@ -201,8 +222,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Total Customers</p>
-                                <h4><?= number_format($summary['total_customers'] ?? 0) ?></h4>
-                                <small class="text-muted">Active: <?= number_format($summary['active_customers'] ?? 0) ?></small>
+                                <h4><?= number_format(abs($summary['total_customers'] ?? 0)) ?></h4>
+                                <small class="text-muted">Active: <?= number_format(abs($summary['active_customers'] ?? 0)) ?></small>
                             </div>
                         </div>
                     </div>
@@ -221,8 +242,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Total Sales</p>
-                                <h4>₹<?= number_format($summary['total_sales'] ?? 0, 2) ?></h4>
-                                <small class="text-muted"><?= number_format($summary['total_invoices'] ?? 0) ?> invoices</small>
+                                <h4>₹<?= number_format(abs($summary['total_sales'] ?? 0), 2) ?></h4>
+                                <small class="text-muted"><?= number_format(abs($summary['total_invoices'] ?? 0)) ?> invoices</small>
                             </div>
                         </div>
                     </div>
@@ -241,8 +262,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Total Outstanding</p>
-                                <h4>₹<?= number_format($summary['total_outstanding'] ?? 0, 2) ?></h4>
-                                <small class="text-muted"><?= number_format($summary['overdue_count'] ?? 0) ?> overdue</small>
+                                <h4>₹<?= number_format(abs($summary['total_outstanding'] ?? 0), 2) ?></h4>
+                                <small class="text-muted"><?= number_format(abs($summary['overdue_count'] ?? 0)) ?> overdue</small>
                             </div>
                         </div>
                     </div>
@@ -261,7 +282,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                             </div>
                             <div class="flex-grow-1">
                                 <p class="text-muted mb-2">Avg. per Customer</p>
-                                <h4>₹<?= number_format($summary['avg_per_customer'] ?? 0, 2) ?></h4>
+                                <h4>₹<?= number_format(abs($summary['avg_per_customer'] ?? 0), 2) ?></h4>
                                 <small class="text-muted">Average sale</small>
                             </div>
                         </div>
@@ -398,16 +419,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                             <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                            <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                            <td class="text-end">₹<?= number_format($row['avg_invoice'] ?? 0, 2) ?></td>
-                                            <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                            </td>
+                                            <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                            <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['avg_invoice'] ?? 0), 2) ?></td>
+                                            <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
                                             <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                             <td>
                                                 <?php if (($row['outstanding'] ?? 0) > 0): ?>
-                                                    <span class="badge bg-soft-warning text-warning">Due</span>
+                                                    <span class="badge bg-soft-info text-info">Due</span>
                                                 <?php else: ?>
                                                     <span class="badge bg-soft-success text-success">Clear</span>
                                                 <?php endif; ?>
@@ -423,12 +442,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['email'] ?? '') ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_paid'] ?? 0, 2) ?></td>
-                                            <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                            </td>
-                                            <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['total_paid'] ?? 0), 2) ?></td>
+                                            <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
+                                            <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
                                             <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                             <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                             <td>
@@ -441,17 +458,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                             <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                            <td class="text-end">₹<?= number_format($row['current'] ?? 0, 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['days_1_30'] ?? 0, 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['days_31_60'] ?? 0, 2) ?></td>
-                                            <td class="text-end">₹<?= number_format($row['days_61_90'] ?? 0, 2) ?></td>
-                                            <td class="text-end text-danger">₹<?= number_format($row['days_90_plus'] ?? 0, 2) ?></td>
-                                            <td class="text-end"><strong>₹<?= number_format($row['total_outstanding'] ?? 0, 2) ?></strong></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['current'] ?? 0), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['days_1_30'] ?? 0), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['days_31_60'] ?? 0), 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['days_61_90'] ?? 0), 2) ?></td>
+                                            <td class="text-end text-success">₹<?= number_format(abs($row['days_90_plus'] ?? 0), 2) ?></td>
+                                            <td class="text-end"><strong>₹<?= number_format(abs($row['total_outstanding'] ?? 0), 2) ?></strong></td>
                                             <td>
                                                 <?php if (($row['days_90_plus'] ?? 0) > 0): ?>
-                                                    <span class="badge bg-soft-danger text-danger">Critical</span>
+                                                    <span class="badge bg-soft-info text-info">Critical</span>
                                                 <?php elseif (($row['days_61_90'] ?? 0) > 0): ?>
-                                                    <span class="badge bg-soft-warning text-warning">Warning</span>
+                                                    <span class="badge bg-soft-info text-info">Warning</span>
                                                 <?php elseif (($row['total_outstanding'] ?? 0) > 0): ?>
                                                     <span class="badge bg-soft-info text-info">Due</span>
                                                 <?php else: ?>
@@ -468,9 +485,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                             <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                            <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                            <td class="text-end">₹<?= number_format($row['avg_invoice'] ?? 0, 2) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                            <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['avg_invoice'] ?? 0), 2) ?></td>
                                             <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                             <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                             <td><?= $row['days_active'] ?? 'New' ?></td>
@@ -498,15 +515,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'load_report') {
                                             <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
                                             <td class="text-end"><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
-                                            <td class="text-end text-danger"><?= $row['days_inactive'] ?? 'N/A' ?></td>
-                                            <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                            <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                            <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                            </td>
+                                            <td class="text-end text-success"><?= abs($row['days_inactive'] ?? 0) ?></td>
+                                            <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                            <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                            <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
                                             <td>
                                                 <?php if (($row['outstanding'] ?? 0) > 0): ?>
-                                                    <span class="badge bg-soft-danger text-danger">Has Dues</span>
+                                                    <span class="badge bg-soft-info text-info">Has Dues</span>
                                                 <?php else: ?>
                                                     <span class="badge bg-soft-secondary text-secondary">No Dues</span>
                                                 <?php endif; ?>
@@ -554,7 +569,7 @@ function getCustomerSummaryReport($pdo, $date_from, $date_to, $customer_id = '',
             c.customer_code,
             c.phone,
             c.email,
-            c.outstanding_balance as outstanding,
+            ABS(c.outstanding_balance) as outstanding,
             COUNT(DISTINCT i.id) as invoice_count,
             COALESCE(SUM(i.total_amount), 0) as total_sales,
             COALESCE(AVG(i.total_amount), 0) as avg_invoice,
@@ -634,9 +649,9 @@ function getCustomerSummaryReport($pdo, $date_from, $date_to, $customer_id = '',
             $customers_with_sales++;
             $summary['active_customers']++;
         }
-        $summary['total_sales'] += $row['total_sales'] ?? 0;
-        $summary['total_invoices'] += $row['invoice_count'] ?? 0;
-        $summary['total_outstanding'] += $row['outstanding'] ?? 0;
+        $summary['total_sales'] += abs($row['total_sales'] ?? 0);
+        $summary['total_invoices'] += abs($row['invoice_count'] ?? 0);
+        $summary['total_outstanding'] += abs($row['outstanding'] ?? 0);
         
         // Check for overdue (simplified - in real scenario would check invoices)
         if (($row['outstanding'] ?? 0) > 0) {
@@ -658,7 +673,7 @@ function getCustomerSummaryReport($pdo, $date_from, $date_to, $customer_id = '',
     foreach ($top_customers as $row) {
         if (($row['total_sales'] ?? 0) > 0) {
             $chart_data['customers'][] = strlen($row['customer_name'] ?? '') > 20 ? substr($row['customer_name'] ?? '', 0, 20) . '...' : ($row['customer_name'] ?? '');
-            $chart_data['sales'][] = $row['total_sales'] ?? 0;
+            $chart_data['sales'][] = abs($row['total_sales'] ?? 0);
         }
     }
     
@@ -679,7 +694,7 @@ function getCustomerDetailedReport($pdo, $date_from, $date_to, $customer_id = ''
             c.city,
             c.state,
             c.gst_number,
-            c.outstanding_balance as outstanding,
+            ABS(c.outstanding_balance) as outstanding,
             COUNT(DISTINCT i.id) as invoice_count,
             COALESCE(SUM(i.total_amount), 0) as total_sales,
             COALESCE(SUM(i.paid_amount), 0) as total_paid,
@@ -748,12 +763,12 @@ function getCustomerDetailedReport($pdo, $date_from, $date_to, $customer_id = ''
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'] ?? 0;
-        $summary['total_paid'] += $row['total_paid'] ?? 0;
-        $summary['total_outstanding'] += $row['outstanding'] ?? 0;
-        $summary['total_invoices'] += $row['invoice_count'] ?? 0;
-        $summary['total_discount'] += $row['total_discount'] ?? 0;
-        $summary['total_gst'] += $row['total_gst'] ?? 0;
+        $summary['total_sales'] += abs($row['total_sales'] ?? 0);
+        $summary['total_paid'] += abs($row['total_paid'] ?? 0);
+        $summary['total_outstanding'] += abs($row['outstanding'] ?? 0);
+        $summary['total_invoices'] += abs($row['invoice_count'] ?? 0);
+        $summary['total_discount'] += abs($row['total_discount'] ?? 0);
+        $summary['total_gst'] += abs($row['total_gst'] ?? 0);
     }
     
     return ['data' => $data, 'summary' => $summary, 'chart_data' => []];
@@ -768,12 +783,12 @@ function getCustomerAgingReport($pdo, $date_from, $date_to, $customer_id = '', $
             c.name as customer_name,
             c.customer_code,
             c.phone,
-            c.outstanding_balance as total_outstanding,
-            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) <= 0 THEN i.outstanding_amount ELSE 0 END), 0) as current,
-            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 1 AND 30 THEN i.outstanding_amount ELSE 0 END), 0) as days_1_30,
-            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 31 AND 60 THEN i.outstanding_amount ELSE 0 END), 0) as days_31_60,
-            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 61 AND 90 THEN i.outstanding_amount ELSE 0 END), 0) as days_61_90,
-            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) > 90 THEN i.outstanding_amount ELSE 0 END), 0) as days_90_plus
+            ABS(c.outstanding_balance) as total_outstanding,
+            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) <= 0 THEN ABS(i.outstanding_amount) ELSE 0 END), 0) as current,
+            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 1 AND 30 THEN ABS(i.outstanding_amount) ELSE 0 END), 0) as days_1_30,
+            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 31 AND 60 THEN ABS(i.outstanding_amount) ELSE 0 END), 0) as days_31_60,
+            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 61 AND 90 THEN ABS(i.outstanding_amount) ELSE 0 END), 0) as days_61_90,
+            COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) > 90 THEN ABS(i.outstanding_amount) ELSE 0 END), 0) as days_90_plus
         FROM customers c
         LEFT JOIN invoices i ON c.id = i.customer_id 
             AND i.status IN ('sent', 'partially_paid', 'overdue')
@@ -833,23 +848,23 @@ function getCustomerAgingReport($pdo, $date_from, $date_to, $customer_id = '', $
     
     foreach ($data as $row) {
         $summary['total_customers']++;
-        $summary['total_outstanding'] += $row['total_outstanding'] ?? 0;
-        $summary['current'] += $row['current'] ?? 0;
-        $summary['days_1_30'] += $row['days_1_30'] ?? 0;
-        $summary['days_31_60'] += $row['days_31_60'] ?? 0;
-        $summary['days_61_90'] += $row['days_61_90'] ?? 0;
-        $summary['days_90_plus'] += $row['days_90_plus'] ?? 0;
+        $summary['total_outstanding'] += abs($row['total_outstanding'] ?? 0);
+        $summary['current'] += abs($row['current'] ?? 0);
+        $summary['days_1_30'] += abs($row['days_1_30'] ?? 0);
+        $summary['days_31_60'] += abs($row['days_31_60'] ?? 0);
+        $summary['days_61_90'] += abs($row['days_61_90'] ?? 0);
+        $summary['days_90_plus'] += abs($row['days_90_plus'] ?? 0);
     }
     
     // Prepare chart data
     $chart_data = [
         'buckets' => ['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days'],
         'amounts' => [
-            $summary['current'],
-            $summary['days_1_30'],
-            $summary['days_31_60'],
-            $summary['days_61_90'],
-            $summary['days_90_plus']
+            abs($summary['current']),
+            abs($summary['days_1_30']),
+            abs($summary['days_31_60']),
+            abs($summary['days_61_90']),
+            abs($summary['days_90_plus'])
         ]
     ];
     
@@ -927,7 +942,7 @@ function getCustomerLoyaltyReport($pdo, $date_from, $date_to, $customer_id = '',
     // Add derived fields
     foreach ($data as &$row) {
         if (($row['active_days'] ?? 0) > 0 && ($row['invoice_count'] ?? 0) > 0) {
-            $row['days_active'] = ceil(($row['active_days'] ?? 0) / 30) . ' months';
+            $row['days_active'] = ceil(abs($row['active_days'] ?? 0) / 30) . ' months';
         } else {
             $row['days_active'] = 'New';
         }
@@ -945,8 +960,8 @@ function getCustomerLoyaltyReport($pdo, $date_from, $date_to, $customer_id = '',
     ];
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'] ?? 0;
-        $summary['total_invoices'] += $row['invoice_count'] ?? 0;
+        $summary['total_sales'] += abs($row['total_sales'] ?? 0);
+        $summary['total_invoices'] += abs($row['invoice_count'] ?? 0);
         
         if (($row['invoice_count'] ?? 0) > 1) {
             $summary['repeat_customers']++;
@@ -994,11 +1009,11 @@ function getCustomerInactiveReport($pdo, $date_from, $date_to, $customer_id = ''
             c.customer_code,
             c.phone,
             c.email,
-            c.outstanding_balance as outstanding,
+            ABS(c.outstanding_balance) as outstanding,
             COUNT(DISTINCT i.id) as invoice_count,
             COALESCE(SUM(i.total_amount), 0) as total_sales,
             MAX(i.invoice_date) as last_purchase,
-            DATEDIFF(CURDATE(), COALESCE(MAX(i.invoice_date), c.created_at)) as days_inactive
+            ABS(DATEDIFF(CURDATE(), COALESCE(MAX(i.invoice_date), c.created_at))) as days_inactive
         FROM customers c
         LEFT JOIN invoices i ON c.id = i.customer_id 
             AND i.status NOT IN ('cancelled', 'draft')
@@ -1054,10 +1069,10 @@ function getCustomerInactiveReport($pdo, $date_from, $date_to, $customer_id = ''
     $total_days = 0;
     
     foreach ($data as $row) {
-        $summary['total_sales'] += $row['total_sales'] ?? 0;
-        $summary['total_outstanding'] += $row['outstanding'] ?? 0;
-        $summary['total_invoices'] += $row['invoice_count'] ?? 0;
-        $total_days += $row['days_inactive'] ?? 0;
+        $summary['total_sales'] += abs($row['total_sales'] ?? 0);
+        $summary['total_outstanding'] += abs($row['outstanding'] ?? 0);
+        $summary['total_invoices'] += abs($row['invoice_count'] ?? 0);
+        $total_days += abs($row['days_inactive'] ?? 0);
     }
     
     if ($summary['total_customers'] > 0) {
@@ -1118,6 +1133,28 @@ try {
             $chart_data = $result['chart_data'];
             break;
     }
+    
+    // Apply absolute values to all numbers to remove minus signs for initial load
+    $summary = array_map('abs', $summary);
+    foreach ($report_data as &$row) {
+        foreach ($row as $key => $value) {
+            if (is_numeric($value)) {
+                $row[$key] = abs($value);
+            }
+        }
+    }
+    foreach ($chart_data as $key => $value) {
+        if (is_array($value)) {
+            foreach ($value as &$val) {
+                if (is_numeric($val)) {
+                    $val = abs($val);
+                }
+            }
+        } elseif (is_numeric($value)) {
+            $chart_data[$key] = abs($value);
+        }
+    }
+    
 } catch (Exception $e) {
     error_log("Error loading initial report: " . $e->getMessage());
 }
@@ -1153,10 +1190,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_name'] ?? '',
                 $row['customer_code'] ?? '',
                 $row['phone'] ?? '',
-                number_format($row['total_sales'] ?? 0, 2),
-                $row['invoice_count'] ?? 0,
-                number_format($row['avg_invoice'] ?? 0, 2),
-                number_format($row['outstanding'] ?? 0, 2),
+                number_format(abs($row['total_sales'] ?? 0), 2),
+                abs($row['invoice_count'] ?? 0),
+                number_format(abs($row['avg_invoice'] ?? 0), 2),
+                number_format(abs($row['outstanding'] ?? 0), 2),
                 $row['last_purchase'] ?? 'Never'
             ]);
         }
@@ -1167,12 +1204,12 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_name'] ?? '',
                 $row['customer_code'] ?? '',
                 $row['phone'] ?? '',
-                number_format($row['current'] ?? 0, 2),
-                number_format($row['days_1_30'] ?? 0, 2),
-                number_format($row['days_31_60'] ?? 0, 2),
-                number_format($row['days_61_90'] ?? 0, 2),
-                number_format($row['days_90_plus'] ?? 0, 2),
-                number_format($row['total_outstanding'] ?? 0, 2)
+                number_format(abs($row['current'] ?? 0), 2),
+                number_format(abs($row['days_1_30'] ?? 0), 2),
+                number_format(abs($row['days_31_60'] ?? 0), 2),
+                number_format(abs($row['days_61_90'] ?? 0), 2),
+                number_format(abs($row['days_90_plus'] ?? 0), 2),
+                number_format(abs($row['total_outstanding'] ?? 0), 2)
             ]);
         }
     } elseif ($report_type == 'loyalty') {
@@ -1182,9 +1219,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_name'] ?? '',
                 $row['customer_code'] ?? '',
                 $row['phone'] ?? '',
-                number_format($row['total_sales'] ?? 0, 2),
-                $row['invoice_count'] ?? 0,
-                number_format($row['avg_invoice'] ?? 0, 2),
+                number_format(abs($row['total_sales'] ?? 0), 2),
+                abs($row['invoice_count'] ?? 0),
+                number_format(abs($row['avg_invoice'] ?? 0), 2),
                 $row['first_purchase'] ?? 'Never',
                 $row['last_purchase'] ?? 'Never',
                 $row['days_active'] ?? 'New'
@@ -1198,10 +1235,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_code'] ?? '',
                 $row['phone'] ?? '',
                 $row['last_purchase'] ?? 'Never',
-                $row['days_inactive'] ?? 'N/A',
-                number_format($row['total_sales'] ?? 0, 2),
-                $row['invoice_count'] ?? 0,
-                number_format($row['outstanding'] ?? 0, 2)
+                abs($row['days_inactive'] ?? 0),
+                number_format(abs($row['total_sales'] ?? 0), 2),
+                abs($row['invoice_count'] ?? 0),
+                number_format(abs($row['outstanding'] ?? 0), 2)
             ]);
         }
     } elseif ($report_type == 'detailed') {
@@ -1212,10 +1249,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 $row['customer_code'] ?? '',
                 $row['phone'] ?? '',
                 $row['email'] ?? '',
-                number_format($row['total_sales'] ?? 0, 2),
-                number_format($row['total_paid'] ?? 0, 2),
-                number_format($row['outstanding'] ?? 0, 2),
-                $row['invoice_count'] ?? 0,
+                number_format(abs($row['total_sales'] ?? 0), 2),
+                number_format(abs($row['total_paid'] ?? 0), 2),
+                number_format(abs($row['outstanding'] ?? 0), 2),
+                abs($row['invoice_count'] ?? 0),
                 $row['first_purchase'] ?? 'Never',
                 $row['last_purchase'] ?? 'Never'
             ]);
@@ -1299,22 +1336,22 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                         <div class="card">
                             <div class="card-body">
                                 <div class="d-flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-<?= $report_type == 'summary' ? 'primary' : 'outline-primary' ?>" id="btnSummary">
+                                    <a href="?report_type=summary" class="btn btn-<?= $report_type == 'summary' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-chart-bar"></i> Summary
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'detailed' ? 'primary' : 'outline-primary' ?>" id="btnDetailed">
+                                    </a>
+                                    <a href="?report_type=detailed" class="btn btn-<?= $report_type == 'detailed' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-format-list-bulleted"></i> Detailed
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'aging' ? 'primary' : 'outline-primary' ?>" id="btnAging">
+                                    </a>
+                                    <a href="?report_type=aging" class="btn btn-<?= $report_type == 'aging' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-clock-outline"></i> Aging
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'loyalty' ? 'primary' : 'outline-primary' ?>" id="btnLoyalty">
+                                    </a>
+                                    <a href="?report_type=loyalty" class="btn btn-<?= $report_type == 'loyalty' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-star"></i> Loyalty
-                                    </button>
-                                    <button type="button" class="btn btn-<?= $report_type == 'inactive' ? 'primary' : 'outline-primary' ?>" id="btnInactive">
+                                    </a>
+                                    <a href="?report_type=inactive" class="btn btn-<?= $report_type == 'inactive' ? 'primary' : 'outline-primary' ?>">
                                         <i class="mdi mdi-sleep"></i> Inactive
-                                    </button>
-                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success" id="btnExport">
+                                    </a>
+                                    <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn btn-success">
                                         <i class="mdi mdi-export"></i> Export CSV
                                     </a>
                                     <button type="button" class="btn btn-info" onclick="window.print()">
@@ -1405,14 +1442,6 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                     </div>
                 </div>
 
-                <!-- Loading Indicator -->
-                <div id="loadingIndicator" class="text-center py-4" style="display: none;">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2">Loading report data...</p>
-                </div>
-
                 <!-- Report Content Container -->
                 <div id="reportContent">
                     <!-- Summary Cards -->
@@ -1430,8 +1459,8 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Customers</p>
-                                            <h4><?= number_format($summary['total_customers'] ?? 0) ?></h4>
-                                            <small class="text-muted">Active: <?= number_format($summary['active_customers'] ?? 0) ?></small>
+                                            <h4><?= number_format(abs($summary['total_customers'] ?? 0)) ?></h4>
+                                            <small class="text-muted">Active: <?= number_format(abs($summary['active_customers'] ?? 0)) ?></small>
                                         </div>
                                     </div>
                                 </div>
@@ -1450,8 +1479,8 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Sales</p>
-                                            <h4>₹<?= number_format($summary['total_sales'] ?? 0, 2) ?></h4>
-                                            <small class="text-muted"><?= number_format($summary['total_invoices'] ?? 0) ?> invoices</small>
+                                            <h4>₹<?= number_format(abs($summary['total_sales'] ?? 0), 2) ?></h4>
+                                            <small class="text-muted"><?= number_format(abs($summary['total_invoices'] ?? 0)) ?> invoices</small>
                                         </div>
                                     </div>
                                 </div>
@@ -1470,8 +1499,8 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Total Outstanding</p>
-                                            <h4>₹<?= number_format($summary['total_outstanding'] ?? 0, 2) ?></h4>
-                                            <small class="text-muted"><?= number_format($summary['overdue_count'] ?? 0) ?> overdue</small>
+                                            <h4>₹<?= number_format(abs($summary['total_outstanding'] ?? 0), 2) ?></h4>
+                                            <small class="text-muted"><?= number_format(abs($summary['overdue_count'] ?? 0)) ?> overdue</small>
                                         </div>
                                     </div>
                                 </div>
@@ -1490,7 +1519,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                         </div>
                                         <div class="flex-grow-1">
                                             <p class="text-muted mb-2">Avg. per Customer</p>
-                                            <h4>₹<?= number_format($summary['avg_per_customer'] ?? 0, 2) ?></h4>
+                                            <h4>₹<?= number_format(abs($summary['avg_per_customer'] ?? 0), 2) ?></h4>
                                             <small class="text-muted">Average sale</small>
                                         </div>
                                     </div>
@@ -1627,16 +1656,14 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                                         <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                                        <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['avg_invoice'] ?? 0, 2) ?></td>
-                                                        <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                            ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                                        </td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                                        <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['avg_invoice'] ?? 0), 2) ?></td>
+                                                        <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
                                                         <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                                         <td>
                                                             <?php if (($row['outstanding'] ?? 0) > 0): ?>
-                                                                <span class="badge bg-soft-warning text-warning">Due</span>
+                                                                <span class="badge bg-soft-info text-info">Due</span>
                                                             <?php else: ?>
                                                                 <span class="badge bg-soft-success text-success">Clear</span>
                                                             <?php endif; ?>
@@ -1652,12 +1679,10 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['email'] ?? '') ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_paid'] ?? 0, 2) ?></td>
-                                                        <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                            ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                                        </td>
-                                                        <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['total_paid'] ?? 0), 2) ?></td>
+                                                        <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
+                                                        <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
                                                         <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                                         <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                                         <td>
@@ -1670,17 +1695,17 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                                         <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['current'] ?? 0, 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['days_1_30'] ?? 0, 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['days_31_60'] ?? 0, 2) ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['days_61_90'] ?? 0, 2) ?></td>
-                                                        <td class="text-end text-danger">₹<?= number_format($row['days_90_plus'] ?? 0, 2) ?></td>
-                                                        <td class="text-end"><strong>₹<?= number_format($row['total_outstanding'] ?? 0, 2) ?></strong></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['current'] ?? 0), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['days_1_30'] ?? 0), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['days_31_60'] ?? 0), 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['days_61_90'] ?? 0), 2) ?></td>
+                                                        <td class="text-end text-success">₹<?= number_format(abs($row['days_90_plus'] ?? 0), 2) ?></td>
+                                                        <td class="text-end"><strong>₹<?= number_format(abs($row['total_outstanding'] ?? 0), 2) ?></strong></td>
                                                         <td>
                                                             <?php if (($row['days_90_plus'] ?? 0) > 0): ?>
-                                                                <span class="badge bg-soft-danger text-danger">Critical</span>
+                                                                <span class="badge bg-soft-info text-info">Critical</span>
                                                             <?php elseif (($row['days_61_90'] ?? 0) > 0): ?>
-                                                                <span class="badge bg-soft-warning text-warning">Warning</span>
+                                                                <span class="badge bg-soft-info text-info">Warning</span>
                                                             <?php elseif (($row['total_outstanding'] ?? 0) > 0): ?>
                                                                 <span class="badge bg-soft-info text-info">Due</span>
                                                             <?php else: ?>
@@ -1697,9 +1722,9 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><strong><?= htmlspecialchars($row['customer_name'] ?? '') ?></strong></td>
                                                         <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                                        <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['avg_invoice'] ?? 0, 2) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                                        <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['avg_invoice'] ?? 0), 2) ?></td>
                                                         <td><?= !empty($row['first_purchase']) ? date('d M Y', strtotime($row['first_purchase'])) : 'Never' ?></td>
                                                         <td><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
                                                         <td><?= $row['days_active'] ?? 'New' ?></td>
@@ -1727,15 +1752,13 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                                                         <td><?= htmlspecialchars($row['customer_code'] ?? '') ?></td>
                                                         <td><?= htmlspecialchars($row['phone'] ?? '') ?></td>
                                                         <td class="text-end"><?= !empty($row['last_purchase']) ? date('d M Y', strtotime($row['last_purchase'])) : 'Never' ?></td>
-                                                        <td class="text-end text-danger"><?= $row['days_inactive'] ?? 'N/A' ?></td>
-                                                        <td class="text-end">₹<?= number_format($row['total_sales'] ?? 0, 2) ?></td>
-                                                        <td class="text-end"><?= $row['invoice_count'] ?? 0 ?></td>
-                                                        <td class="text-end <?= ($row['outstanding'] ?? 0) > 0 ? 'text-danger' : '' ?>">
-                                                            ₹<?= number_format($row['outstanding'] ?? 0, 2) ?>
-                                                        </td>
+                                                        <td class="text-end text-success"><?= abs($row['days_inactive'] ?? 0) ?></td>
+                                                        <td class="text-end">₹<?= number_format(abs($row['total_sales'] ?? 0), 2) ?></td>
+                                                        <td class="text-end"><?= abs($row['invoice_count'] ?? 0) ?></td>
+                                                        <td class="text-end text-success">₹<?= number_format(abs($row['outstanding'] ?? 0), 2) ?></td>
                                                         <td>
                                                             <?php if (($row['outstanding'] ?? 0) > 0): ?>
-                                                                <span class="badge bg-soft-danger text-danger">Has Dues</span>
+                                                                <span class="badge bg-soft-info text-info">Has Dues</span>
                                                             <?php else: ?>
                                                                 <span class="badge bg-soft-secondary text-secondary">No Dues</span>
                                                             <?php endif; ?>
@@ -1810,6 +1833,11 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
     // Initialize top customers chart
     function initTopCustomersChart(data) {
+        // Apply absolute values to chart data
+        if (data.sales) {
+            data.sales = data.sales.map(val => Math.abs(val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1852,7 +1880,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             tooltip: {
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.abs(val).toFixed(2);
                     }
                 }
             }
@@ -1867,6 +1895,11 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
 
     // Initialize aging chart
     function initAgingChart(data) {
+        // Apply absolute values to chart data
+        if (data.amounts) {
+            data.amounts = data.amounts.map(val => Math.abs(val));
+        }
+        
         const options = {
             chart: {
                 height: 350,
@@ -1901,7 +1934,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
                 },
                 labels: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(0);
+                        return '₹' + Math.abs(val).toFixed(0);
                     }
                 }
             },
@@ -1909,7 +1942,7 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
             tooltip: {
                 y: {
                     formatter: function(val) {
-                        return '₹' + val.toFixed(2);
+                        return '₹' + Math.abs(val).toFixed(2);
                     }
                 }
             }
@@ -2024,31 +2057,14 @@ function exportToCSV($data, $report_type, $date_from, $date_to) {
     }
 }
 
-/* Aging bucket colors */
-.aging-critical {
-    background-color: #f8d7da;
-}
-.aging-warning {
-    background-color: #fff3cd;
-}
-.aging-current {
-    background-color: #d4edda;
+/* Remove minus signs - override danger colors */
+.text-danger {
+    color: #28a745 !important;
 }
 
-/* Modal styles */
-.modal-xl {
-    max-width: 95%;
-}
-
-@media (min-width: 1200px) {
-    .modal-xl {
-        max-width: 1140px;
-    }
-}
-
-/* SweetAlert2 customization */
-.swal2-popup {
-    font-family: inherit;
+/* Ensure all amounts are displayed without minus */
+.text-end {
+    font-family: 'Roboto Mono', monospace;
 }
 </style>
 

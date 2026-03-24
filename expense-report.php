@@ -1233,13 +1233,7 @@ function exportToCSV($data, $report_type, $expense_categories) {
                                         ?>
                                     </h4>
                                     <?php if ($report_type != 'trends'): ?>
-                                    <div>
-                                        <select class="form-select form-select-sm" id="chartType" onchange="changeChartType(this.value)">
-                                            <option value="bar" <?= $chart_type == 'bar' ? 'selected' : '' ?>>Bar Chart</option>
-                                            <option value="pie" <?= $chart_type == 'pie' ? 'selected' : '' ?>>Pie Chart</option>
-                                            <option value="line" <?= $chart_type == 'line' ? 'selected' : '' ?>>Line Chart</option>
-                                        </select>
-                                    </div>
+                                   
                                     <?php endif; ?>
                                 </div>
                                 <div id="expense-chart" class="apex-charts" dir="ltr"></div>
